@@ -1,0 +1,27 @@
+[project]
+name = "synmax-python-takehome"
+version = "0.1.0"
+description = "SynMax Python developer take-home: well-data ingestion, SQLite loading, and API service."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "lxml",
+    "pydantic",
+    "shapely",
+    "uvicorn[standard]",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
