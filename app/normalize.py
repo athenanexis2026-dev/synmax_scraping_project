@@ -1,5 +1,4 @@
 """Normalize source records into the assignment's exact column shape."""
-"""COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMMA IS CORRECT"""
 
 from __future__ import annotations
 
@@ -10,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from app.schema import ASSIGNMENT_COLUMNS, INTEGER_COLUMNS, REAL_COLUMNS
+
+# COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMMA IS CORRECT
 
 FIELD_MAPPING = {
     "Current Operator": "Operator",
