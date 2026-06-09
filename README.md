@@ -14,7 +14,19 @@ The canonical architecture and five-day build roadmap lives here:
 docs/SynMax_Takehome_Architecture_Plan.md
 ```
 
-No scraper, API, or database implementation has been added yet. This scaffold is only the project starting point.
+Part 1 ingestion has started. The current implementation can normalize a local source/export CSV,
+filter it to the assignment API numbers, and load the exact required `api_well_data` table into
+SQLite.
+
+```bash
+python -m app.cli load-db \
+  --api-csv apis_pythondev_test.csv \
+  --source-csv data/nm_ocd_expanded_export.csv \
+  --database sqlite.db
+```
+
+The source/export CSV should contain NM OCD expanded-results-style headers such as `API`,
+`Current Operator`, `Status`, `Type`, `Work Type`, `Latitude`, and `Longitude`.
 
 ## Planned Stack
 
@@ -30,4 +42,5 @@ No scraper, API, or database implementation has been added yet. This scaffold is
 
 ## Current Status
 
-Step 1 is the minimal project setup and durable plan. Actual implementation will happen later, one step at a time.
+Step 1 has the database schema, field normalization, and local CSV-to-SQLite loader in place. The
+live source acquisition adapter and enrichment fields will be added in later steps.
