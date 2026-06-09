@@ -1,11 +1,19 @@
-from app.normalize import normalize_api_number, normalize_record, normalize_records
+from app.normalize import read_api_numbers, normalize_api_number, normalize_record, normalize_records
 
-"""COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMA/TESTS IS CORRECT"""
+# COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMA/TESTS IS CORRECT
+
 
 def test_normalize_api_number_keeps_digits_only() -> None:
     assert normalize_api_number("30-015-12345") == "3001512345"
     assert normalize_api_number(" 3001512345 ") == "3001512345"
     assert normalize_api_number("") is None
+
+
+def test_read_api_numbers_handles_one_column_header(tmp_path) -> None:
+    csv_path = tmp_path / "apis.csv"
+    csv_path.write_text("api\n30-045-35432\n", encoding="utf-8")
+
+    assert read_api_numbers(csv_path) == {"3004535432"}
 
 
 def test_normalize_record_maps_export_fields_and_types() -> None:

@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+data/cache/
+data/scrape_report.jsonl

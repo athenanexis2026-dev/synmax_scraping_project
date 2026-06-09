@@ -53,7 +53,11 @@ def read_api_numbers(csv_path: Path | str) -> set[str]:
     with Path(csv_path).open(newline="", encoding="utf-8-sig") as csv_file:
         sample = csv_file.read(4096)
         csv_file.seek(0)
-        has_header = csv.Sniffer().has_header(sample)
+        try:
+            has_header = csv.Sniffer().has_header(sample)
+        except csv.Error:
+            first_line = sample.splitlines()[0] if sample.splitlines() else ""
+            has_header = first_line.strip().lower() in {"api", "api number", "apinumber"}
         if has_header:
             reader = csv.DictReader(csv_file)
             api_column = _find_api_column(reader.fieldnames or [])
