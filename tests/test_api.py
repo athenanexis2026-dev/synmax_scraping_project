@@ -60,6 +60,20 @@ def test_get_well_returns_exact_columns_and_cache_headers(tmp_path) -> None:
     assert cached_response.status_code == 304
 
 
+def test_get_well_openapi_contract_documents_api_number_formats(tmp_path) -> None:
+    client = TestClient(create_app(_build_database(tmp_path)))
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    well_operation = response.json()["paths"]["/well/{api_number}"]["get"]
+    parameter = well_operation["parameters"][0]
+    assert well_operation["summary"] == "Get one well by API number"
+    assert parameter["name"] == "api_number"
+    assert parameter["schema"]["pattern"] == r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$"
+    assert "30-015-45678-0000" in parameter["schema"]["examples"]
+
+
 def test_get_well_requires_hyphenated_api_number(tmp_path) -> None:
     client = TestClient(create_app(_build_database(tmp_path)))
 

@@ -11,17 +11,48 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.geo import PolygonValidationError, parse_polygon_points, point_is_covered_by_polygon
 from app.storage import count_wells, get_well, iter_wells_in_bounds
 
 
-API_NUMBER_PATTERN = re.compile(r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$")
+API_NUMBER_PATTERN_TEXT = r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$"
+API_NUMBER_PATTERN = re.compile(API_NUMBER_PATTERN_TEXT)
+API_NUMBER_DESCRIPTION = (
+    "Hyphenated New Mexico API number. Use `30-015-25325` for 10-digit APIs or "
+    "`30-015-45678-0000` for 14-digit APIs."
+)
+API_NUMBER_ERROR = (
+    "api_number must use a hyphenated format like 30-015-25325 or 30-015-45678-0000"
+)
 CACHE_CONTROL = "public, max-age=300"
 DEFAULT_DATABASE_PATH = "sqlite.db"
 DEFAULT_DOTENV_PATH = ".env"
+WELL_RESPONSE_EXAMPLE = {
+    "Operator": "Permian Star Energy",
+    "Status": "Active",
+    "Well Type": "Oil",
+    "Work Type": "New Drill",
+    "Directional Status": "Horizontal",
+    "Multi-Lateral": "No",
+    "Mineral Owner": "Blackstone Minerals",
+    "Surface Owner": "Garcia Ranch LLC",
+    "Surface Location": "Sec 12 T24S R33E",
+    "GL Elevation": 3184.5,
+    "KB Elevation": 3206.5,
+    "DF Elevation": 3201.2,
+    "Single/Multiple Completion": "Single",
+    "Potash Waiver": "Yes",
+    "Spud Date": "2024-01-15",
+    "Last Inspection": "2026-05-20",
+    "TVD": 10450.0,
+    "API": "30015456780000",
+    "Latitude": 32.215647,
+    "Longitude": -103.654982,
+    "CRS": "EPSG:4326",
+}
 
 
 class DatabaseUnavailable(RuntimeError):
@@ -31,10 +62,22 @@ class DatabaseUnavailable(RuntimeError):
 def create_app(database_path: Path | str | None = None) -> FastAPI:
     """Create the API app with a configurable SQLite database path."""
 
-    api = FastAPI(title="SynMax Well Data API")
+    api = FastAPI(
+        title="SynMax Well Data API",
+        summary="Read-only API for New Mexico well records loaded into SQLite.",
+        description=(
+            "Serves the `api_well_data` SQLite table through read-only endpoints. "
+            "The API accepts hyphenated API numbers publicly and normalizes them "
+            "to digit-only keys for database lookup."
+        ),
+        openapi_tags=[
+            {"name": "health", "description": "Service and database readiness checks."},
+            {"name": "wells", "description": "Read-only well data lookup and search."},
+        ],
+    )
     api.state.database_path = _resolve_database_path(database_path)
 
-    @api.get("/health")
+    @api.get("/health", tags=["health"])
     def health(request: Request) -> dict[str, Any]:
         path = _database_path(request)
         try:
@@ -48,8 +91,30 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
 
         return {"status": "ok", "database": "connected", "row_count": row_count}
 
-    @api.get("/well/{api_number}")
-    def read_well(api_number: str, request: Request) -> Response:
+    @api.get(
+        "/well/{api_number}",
+        tags=["wells"],
+        summary="Get one well by API number",
+        response_description="A single well record using the assignment field names.",
+        responses={
+            200: {
+                "description": "Well found.",
+                "content": {"application/json": {"example": WELL_RESPONSE_EXAMPLE}},
+            },
+            304: {"description": "The cached client copy is still current."},
+            404: {"description": "The API number is well-formed but no row exists."},
+            422: {"description": "The API number is not hyphenated correctly."},
+            503: {"description": "The configured SQLite database is unavailable."},
+        },
+    )
+    def read_well(
+        request: Request,
+        api_number: str = ApiPath(
+            pattern=API_NUMBER_PATTERN_TEXT,
+            description=API_NUMBER_DESCRIPTION,
+            examples=["30-015-25325", "30-015-45678-0000"],
+        ),
+    ) -> Response:
         normalized_api = normalize_hyphenated_api_number(api_number)
         path = _database_path(request)
 
@@ -63,7 +128,7 @@ def create_app(database_path: Path | str | None = None) -> FastAPI:
 
         return _json_cache_response(well, request)
 
-    @api.get("/wells/polygon")
+    @api.get("/wells/polygon", tags=["wells"])
     def wells_in_polygon(points: str, request: Request) -> Response:
         try:
             parse_polygon_points(points)
@@ -88,10 +153,7 @@ def normalize_hyphenated_api_number(api_number: str) -> str:
     """Validate a public hyphenated API number and return its digit-only storage key."""
 
     if not API_NUMBER_PATTERN.fullmatch(api_number):
-        raise HTTPException(
-            status_code=422,
-            detail="api_number must use the hyphenated format 30-015-25325",
-        )
+        raise HTTPException(status_code=422, detail=API_NUMBER_ERROR)
     return api_number.replace("-", "")
 
 
