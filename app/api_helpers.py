@@ -18,6 +18,7 @@ from app.api_config import CACHE_CONTROL
 class DatabaseUnavailable(RuntimeError):
     """Raised when the configured SQLite database cannot be read."""
 
+
 # COMMENT THIS IS REALATED TO CACHE NEED TO UNDERSTAND WHY WE NEE THIS FOR THE LRU CACHE
 def database_mtime_ns(database_path: Path) -> int:
     """Return the SQLite file modified time for cache invalidation."""
@@ -31,8 +32,12 @@ def database_mtime_ns(database_path: Path) -> int:
 def get_database_path() -> Path:
     """Return the database path configured in the environment."""
 
-    database_path = os.environ["SYNMAX_DATABASE_PATH"]
+    try:
+        database_path = os.environ["SYNMAX_DATABASE_PATH"]
+    except KeyError as error:
+        raise DatabaseUnavailable("SYNMAX_DATABASE_PATH must be set") from error
     return Path(database_path).expanduser()
+
 
 # Read-only mode protects the database, prevents accidental writes, prevents accidental empty DB creation, and matches the API’s read-only design.
 def connect_readonly(database_path: Path) -> sqlite3.Connection:
