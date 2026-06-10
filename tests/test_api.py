@@ -1,6 +1,8 @@
+import os
+
 from fastapi.testclient import TestClient
 
-from app.api import create_app
+from app.api import _load_dotenv, create_app
 from app.normalize import normalize_record
 from app.schema import ASSIGNMENT_COLUMNS
 from app.storage import connect, initialize_database, upsert_wells
@@ -13,6 +15,21 @@ def test_health_returns_database_status(tmp_path) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "database": "connected", "row_count": 4}
+
+
+def test_load_dotenv_sets_database_path_without_overriding_existing_env(tmp_path, monkeypatch) -> None:
+    dotenv_path = tmp_path / ".env"
+    dotenv_path.write_text("SYNMAX_DATABASE_PATH=/tmp/from-dotenv.db\n", encoding="utf-8")
+    monkeypatch.delenv("SYNMAX_DATABASE_PATH", raising=False)
+
+    _load_dotenv(dotenv_path)
+
+    assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-dotenv.db"
+
+    monkeypatch.setenv("SYNMAX_DATABASE_PATH", "/tmp/from-shell.db")
+    _load_dotenv(dotenv_path)
+
+    assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-shell.db"
 
 
 def test_health_returns_503_for_missing_database(tmp_path) -> None:
@@ -49,6 +66,16 @@ def test_get_well_requires_hyphenated_api_number(tmp_path) -> None:
     response = client.get("/well/3001525325")
 
     assert response.status_code == 422
+
+
+def test_get_well_accepts_four_segment_hyphenated_api_number(tmp_path) -> None:
+    client = TestClient(create_app(_build_database_with_snake_case_columns(tmp_path)))
+
+    response = client.get("/well/30-015-45678-0000")
+
+    assert response.status_code == 200
+    assert response.json()["API"] == "30015456780000"
+    assert response.json()["Operator"] == "Snake Case Operator"
 
 
 def test_get_well_returns_404_for_missing_well(tmp_path) -> None:
@@ -133,6 +160,33 @@ def _build_database(tmp_path):
                 ),
             ],
         )
+    finally:
+        connection.close()
+    return database_path
+
+
+def _build_database_with_snake_case_columns(tmp_path):
+    database_path = tmp_path / "snake_case.db"
+    connection = connect(database_path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE api_well_data (
+                operator TEXT,
+                api TEXT,
+                latitude REAL,
+                longitude REAL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO api_well_data (operator, api, latitude, longitude)
+            VALUES (?, ?, ?, ?)
+            """,
+            ("Snake Case Operator", "30015456780000", 32.2, -103.6),
+        )
+        connection.commit()
     finally:
         connection.close()
     return database_path

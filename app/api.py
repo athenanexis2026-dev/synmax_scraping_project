@@ -18,9 +18,10 @@ from app.geo import PolygonValidationError, parse_polygon_points, point_is_cover
 from app.storage import count_wells, get_well, iter_wells_in_bounds
 
 
-API_NUMBER_PATTERN = re.compile(r"^\d{2}-\d{3}-\d{5}$")
+API_NUMBER_PATTERN = re.compile(r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$")
 CACHE_CONTROL = "public, max-age=300"
 DEFAULT_DATABASE_PATH = "sqlite.db"
+DEFAULT_DOTENV_PATH = ".env"
 
 
 class DatabaseUnavailable(RuntimeError):
@@ -165,8 +166,25 @@ def _database_mtime_ns(database_path: Path) -> int:
 
 
 def _resolve_database_path(database_path: Path | str | None) -> Path:
+    _load_dotenv()
     configured_path = database_path or os.environ.get("SYNMAX_DATABASE_PATH", DEFAULT_DATABASE_PATH)
     return Path(configured_path).expanduser()
+
+
+def _load_dotenv(dotenv_path: Path | str = DEFAULT_DOTENV_PATH) -> None:
+    path = Path(dotenv_path)
+    if not path.exists():
+        return
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
 
 
 def _sqlite_readonly_uri(database_path: Path) -> str:
