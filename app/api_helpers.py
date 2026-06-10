@@ -34,22 +34,17 @@ def get_database_path() -> Path:
     database_path = os.environ["SYNMAX_DATABASE_PATH"]
     return Path(database_path).expanduser()
 
-
+# Read-only mode protects the database, prevents accidental writes, prevents accidental empty DB creation, and matches the API’s read-only design.
 def connect_readonly(database_path: Path) -> sqlite3.Connection:
     """Open a read-only SQLite connection with rows accessible by column name."""
 
     try:
-        connection = sqlite3.connect(sqlite_readonly_uri(database_path), uri=True)
+        readonly_uri = f"{database_path.resolve().as_uri()}?mode=ro"
+        connection = sqlite3.connect(readonly_uri, uri=True)
         connection.row_factory = sqlite3.Row
         return connection
     except (OSError, sqlite3.Error) as error:
         raise DatabaseUnavailable(f"Database unavailable: {error}") from error
-
-
-def sqlite_readonly_uri(database_path: Path) -> str:
-    """Build a SQLite URI that prevents accidentally creating or writing the database."""
-
-    return f"{database_path.resolve().as_uri()}?mode=ro"
 
 
 def json_cache_response(content: Any, request: Request) -> Response:
