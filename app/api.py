@@ -21,20 +21,20 @@ from app.api_helpers import (
     DatabaseUnavailable,
     connect_readonly,
     database_mtime_ns,
+    get_database_path,
     json_cache_response,
-    resolve_database_path,
 )
 from app.geo import PolygonValidationError, parse_polygon_points, point_is_covered_by_polygon
 from app.storage import get_well, iter_wells_in_bounds
 
 
-def create_app(database_path: Path | str | None = None) -> FastAPI:
+def create_app() -> FastAPI:
     """Create the API app with a configurable SQLite database path."""
 
     # is creating the FastAPI application.
     # FastAPI(...) is the constructor that builds the API app.
     api = FastAPI(**APP_METADATA)
-    resolved_database_path = resolve_database_path(database_path)
+    resolved_database_path = get_database_path()
     api.state.database_path = resolved_database_path
 
     @api.get("/health", tags=["health"])

@@ -28,8 +28,6 @@ API_NUMBER_ERROR = (
     "api_number must use a hyphenated format like 30-015-25325 or 30-015-45678-0000"
 )
 CACHE_CONTROL = "public, max-age=300"
-DEFAULT_DATABASE_PATH = "sqlite.db"
-DEFAULT_DOTENV_PATH = ".env"
 WELL_RESPONSE_EXAMPLE = {
     "Operator": "Permian Star Energy",
     "Status": "Active",

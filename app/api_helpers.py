@@ -12,14 +12,13 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from app.api_config import CACHE_CONTROL, DEFAULT_DATABASE_PATH, DEFAULT_DOTENV_PATH
+from app.api_config import CACHE_CONTROL
 
 
-# COMMENT REPRESENTS AN ERROR TYPE
 class DatabaseUnavailable(RuntimeError):
     """Raised when the configured SQLite database cannot be read."""
 
-
+# COMMENT THIS IS REALATED TO CACHE NEED TO UNDERSTAND WHY WE NEE THIS FOR THE LRU CACHE
 def database_mtime_ns(database_path: Path) -> int:
     """Return the SQLite file modified time for cache invalidation."""
 
@@ -29,30 +28,11 @@ def database_mtime_ns(database_path: Path) -> int:
         raise DatabaseUnavailable(f"Database unavailable: {error}") from error
 
 
-def resolve_database_path(database_path: Path | str | None) -> Path:
-    """Resolve the database path from an override, environment variable, or default."""
+def get_database_path() -> Path:
+    """Return the database path configured in the environment."""
 
-    load_dotenv()
-    configured_path = database_path or os.environ.get("SYNMAX_DATABASE_PATH", DEFAULT_DATABASE_PATH)
-    return Path(configured_path).expanduser()
-
-
-def load_dotenv(dotenv_path: Path | str = DEFAULT_DOTENV_PATH) -> None:
-    """Load key-value pairs from a local .env file into the process environment."""
-
-    path = Path(dotenv_path)
-    if not path.exists():
-        return
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+    database_path = os.environ["SYNMAX_DATABASE_PATH"]
+    return Path(database_path).expanduser()
 
 
 def connect_readonly(database_path: Path) -> sqlite3.Connection:

@@ -2,15 +2,16 @@ import os
 
 from fastapi.testclient import TestClient
 
+os.environ.setdefault("SYNMAX_DATABASE_PATH", "api_well_data.db")
+
 from app.api import create_app
-from app.api_helpers import load_dotenv
 from app.normalize import normalize_record
 from app.schema import ASSIGNMENT_COLUMNS
 from app.storage import connect, initialize_database, upsert_wells
 
 
-def test_health_returns_database_status(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_health_returns_database_status(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/health")
 
@@ -18,31 +19,16 @@ def test_health_returns_database_status(tmp_path) -> None:
     assert response.json() == {"status": "ok", "database": "connected"}
 
 
-def test_load_dotenv_sets_database_path_without_overriding_existing_env(tmp_path, monkeypatch) -> None:
-    dotenv_path = tmp_path / ".env"
-    dotenv_path.write_text("SYNMAX_DATABASE_PATH=/tmp/from-dotenv.db\n", encoding="utf-8")
-    monkeypatch.delenv("SYNMAX_DATABASE_PATH", raising=False)
-
-    load_dotenv(dotenv_path)
-
-    assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-dotenv.db"
-
-    monkeypatch.setenv("SYNMAX_DATABASE_PATH", "/tmp/from-shell.db")
-    load_dotenv(dotenv_path)
-
-    assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-shell.db"
-
-
-def test_health_returns_503_for_missing_database(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "missing.db"))
+def test_health_returns_503_for_missing_database(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(tmp_path / "missing.db", monkeypatch)
 
     response = client.get("/health")
 
     assert response.status_code == 503
 
 
-def test_get_well_returns_exact_columns_and_cache_headers(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_get_well_returns_exact_columns_and_cache_headers(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/30-015-25325")
 
@@ -61,8 +47,8 @@ def test_get_well_returns_exact_columns_and_cache_headers(tmp_path) -> None:
     assert cached_response.status_code == 304
 
 
-def test_get_well_openapi_contract_documents_api_number_formats(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_get_well_openapi_contract_documents_api_number_formats(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/openapi.json")
 
@@ -75,16 +61,16 @@ def test_get_well_openapi_contract_documents_api_number_formats(tmp_path) -> Non
     assert "30-015-45678-0000" in parameter["schema"]["examples"]
 
 
-def test_get_well_requires_hyphenated_api_number(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_get_well_requires_hyphenated_api_number(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/3001525325")
 
     assert response.status_code == 422
 
 
-def test_get_well_accepts_four_segment_hyphenated_api_number(tmp_path) -> None:
-    client = TestClient(create_app(_build_database_with_snake_case_columns(tmp_path)))
+def test_get_well_accepts_four_segment_hyphenated_api_number(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database_with_snake_case_columns(tmp_path), monkeypatch)
 
     response = client.get("/well/30-015-45678-0000")
 
@@ -93,16 +79,16 @@ def test_get_well_accepts_four_segment_hyphenated_api_number(tmp_path) -> None:
     assert response.json()["Operator"] == "Snake Case Operator"
 
 
-def test_get_well_returns_404_for_missing_well(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_get_well_returns_404_for_missing_well(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/30-015-99999")
 
     assert response.status_code == 404
 
 
-def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/wells/polygon?points=32,-105;33,-105;33,-104;32,-104")
 
@@ -119,16 +105,16 @@ def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path) ->
     assert cached_response.status_code == 304
 
 
-def test_wells_polygon_rejects_two_distinct_points(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_wells_polygon_rejects_two_distinct_points(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/wells/polygon?points=32,-105;33,-105")
 
     assert response.status_code == 422
 
 
-def test_wells_polygon_rejects_malformed_points(tmp_path) -> None:
-    client = TestClient(create_app(_build_database(tmp_path)))
+def test_wells_polygon_rejects_malformed_points(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/wells/polygon?points=32,-105;nope;33,-104")
 
@@ -178,6 +164,11 @@ def _build_database(tmp_path):
     finally:
         connection.close()
     return database_path
+
+
+def _client_for_database(database_path, monkeypatch):
+    monkeypatch.setenv("SYNMAX_DATABASE_PATH", str(database_path))
+    return TestClient(create_app())
 
 
 def _build_database_with_snake_case_columns(tmp_path):

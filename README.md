@@ -34,19 +34,23 @@ Part 2 exposes the SQLite data through a read-only FastAPI service. The API expe
 table to be named `api_well_data` and the stored `API` values to be digit-only text.
 
 ```bash
-uvicorn app.api:app --reload
+make start
 ```
 
-The API reads `SYNMAX_DATABASE_PATH` from `.env` if present. This lets the SQLite database live in
-another folder without changing code:
+The API requires `SYNMAX_DATABASE_PATH` in the process environment. You can keep that value in
+`.env`, and `make start` will load it before starting the API:
 
 ```bash
 SYNMAX_DATABASE_PATH=/absolute/path/to/api_well_data.db
 ```
 
-If neither `.env` nor the shell environment sets `SYNMAX_DATABASE_PATH`, the API uses `sqlite.db`
-in the current working directory. Keep `.env.example` as the shareable template and use `.env` for
-your local machine path.
+For local development, use:
+
+```bash
+make start
+```
+
+Keep `.env.example` as the shareable template and use `.env` for your local machine path.
 
 Health check:
 
