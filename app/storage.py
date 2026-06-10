@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from app.schema import ASSIGNMENT_COLUMNS, GEO_COORDINATE_COLUMNS, CREATE_TABLE_SQL
+from app.schema import ASSIGNMENT_COLUMNS, CREATE_TABLE_SQL, GEO_COORDINATE_COLUMNS
 
 
 def connect(database_path: Path | str) -> sqlite3.Connection:
@@ -56,3 +56,34 @@ def get_well(connection: sqlite3.Connection, api_number: str) -> dict[str, Any] 
         (api_number,),
     ).fetchone()
     return dict(row) if row else None
+
+
+def count_wells(connection: sqlite3.Connection) -> int:
+    """Return the number of rows in the well table."""
+
+    row = connection.execute("SELECT COUNT(*) AS count FROM api_well_data").fetchone()
+    return int(row["count"])
+
+
+def iter_wells_in_bounds(
+    connection: sqlite3.Connection,
+    min_latitude: float,
+    max_latitude: float,
+    min_longitude: float,
+    max_longitude: float,
+) -> list[dict[str, Any]]:
+    """Return wells with coordinates inside a latitude/longitude bounding box."""
+
+    rows = connection.execute(
+        """
+        SELECT "API", "Latitude", "Longitude"
+        FROM api_well_data
+        WHERE "Latitude" IS NOT NULL
+          AND "Longitude" IS NOT NULL
+          AND "Latitude" BETWEEN ? AND ?
+          AND "Longitude" BETWEEN ? AND ?
+        ORDER BY "API" ASC
+        """,
+        (min_latitude, max_latitude, min_longitude, max_longitude),
+    ).fetchall()
+    return [dict(row) for row in rows]

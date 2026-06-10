@@ -28,6 +28,46 @@ python -m app.cli load-db \
 The source/export CSV should contain NM OCD expanded-results-style headers such as `API`,
 `Current Operator`, `Status`, `Type`, `Work Type`, `Latitude`, and `Longitude`.
 
+## Running the API
+
+Part 2 exposes the SQLite data through a read-only FastAPI service. The API expects the database
+table to be named `api_well_data` and the stored `API` values to be digit-only text.
+
+```bash
+SYNMAX_DATABASE_PATH=sqlite.db uvicorn app.api:app --reload
+```
+
+If `SYNMAX_DATABASE_PATH` is not set, the API uses `sqlite.db` in the current working directory.
+
+Health check:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Single-well lookup:
+
+```bash
+curl http://127.0.0.1:8000/well/30-015-25325
+```
+
+The public route requires a hyphenated API number like `30-015-25325`. Internally, it normalizes
+that value to `3001525325` to match the SQLite table.
+
+Polygon search:
+
+```bash
+curl 'http://127.0.0.1:8000/wells/polygon?points=32.81,-104.19;32.66,-104.32;32.54,-104.24;32.50,-104.03;32.73,-104.01;32.79,-103.91;32.84,-104.05;32.81,-104.19'
+```
+
+The polygon endpoint accepts ordered `lat,lon` pairs. At least three distinct points are required
+because a polygon is a closed area; two points define only a line. The API validates coordinate
+ranges, closes the polygon when needed, prefilters candidate rows with the latitude/longitude
+index, and then uses exact Shapely geometry matching. Wells on the polygon boundary are included.
+
+Successful read responses include `Cache-Control: public, max-age=300` and an `ETag`, so repeated
+requests can use standard HTTP caching.
+
 ## Planned Stack
 
 - Python 3.11+
@@ -42,5 +82,6 @@ The source/export CSV should contain NM OCD expanded-results-style headers such 
 
 ## Current Status
 
-Step 1 has the database schema, field normalization, and local CSV-to-SQLite loader in place. The
+Step 1 has the database schema, field normalization, and local CSV-to-SQLite loader in place. Step
+2 has a read-only FastAPI service for health checks, single-well lookup, and polygon search. The
 live source acquisition adapter and enrichment fields will be added in later steps.
