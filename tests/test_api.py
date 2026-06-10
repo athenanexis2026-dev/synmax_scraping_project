@@ -2,7 +2,8 @@ import os
 
 from fastapi.testclient import TestClient
 
-from app.api import _load_dotenv, create_app
+from app.api import create_app
+from app.api_helpers import load_dotenv
 from app.normalize import normalize_record
 from app.schema import ASSIGNMENT_COLUMNS
 from app.storage import connect, initialize_database, upsert_wells
@@ -14,7 +15,7 @@ def test_health_returns_database_status(tmp_path) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "database": "connected", "row_count": 4}
+    assert response.json() == {"status": "ok", "database": "connected"}
 
 
 def test_load_dotenv_sets_database_path_without_overriding_existing_env(tmp_path, monkeypatch) -> None:
@@ -22,12 +23,12 @@ def test_load_dotenv_sets_database_path_without_overriding_existing_env(tmp_path
     dotenv_path.write_text("SYNMAX_DATABASE_PATH=/tmp/from-dotenv.db\n", encoding="utf-8")
     monkeypatch.delenv("SYNMAX_DATABASE_PATH", raising=False)
 
-    _load_dotenv(dotenv_path)
+    load_dotenv(dotenv_path)
 
     assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-dotenv.db"
 
     monkeypatch.setenv("SYNMAX_DATABASE_PATH", "/tmp/from-shell.db")
-    _load_dotenv(dotenv_path)
+    load_dotenv(dotenv_path)
 
     assert os.environ["SYNMAX_DATABASE_PATH"] == "/tmp/from-shell.db"
 
