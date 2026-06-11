@@ -29,6 +29,28 @@ API_NUMBER_ERROR = (
     "api_number must use a hyphenated format like 30-015-25325 or 30-015-45678-0000"
 )
 CACHE_CONTROL = "public, max-age=300"
+POLYGON_POINTS_DESCRIPTION = (
+    "Ordered polygon vertices as semicolon-separated latitude,longitude pairs. "
+    "Example: `32,-105;33,-105;33,-104;32,-104`. At least three distinct points "
+    "are required."
+)
+POLYGON_POINTS_EXAMPLES = [
+    "32,-105;33,-105;33,-104;32,-104",
+    "32.81,-104.19;32.66,-104.32;32.54,-104.24;32.81,-104.19",
+]
+POLYGON_RESPONSE_EXAMPLE = {
+    "api_numbers": ["30015432100000", "30025411230000"],
+    "count": 2,
+}
+POLYGON_ROUTE_RESPONSES = {
+    200: {
+        "description": "Polygon search completed.",
+        "content": {"application/json": {"example": POLYGON_RESPONSE_EXAMPLE}},
+    },
+    304: {"description": "The cached client copy is still current."},
+    422: {"description": "The polygon points are missing, malformed, or invalid."},
+    503: {"description": "The configured SQLite database is unavailable."},
+}
 WELL_RESPONSE_EXAMPLE = {
     "Operator": "Permian Star Energy",
     "Status": "Active",

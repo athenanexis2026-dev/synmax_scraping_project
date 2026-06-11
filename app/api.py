@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 # fastapi is the web framework we are using to build the API.
-from fastapi import FastAPI, HTTPException, Path as ApiPath, Request
+from fastapi import FastAPI, HTTPException, Path as ApiPath, Query as ApiQuery, Request
 from fastapi.responses import Response
 
 from app.api_config import (
@@ -12,6 +12,9 @@ from app.api_config import (
     API_NUMBER_EXAMPLES,
     API_NUMBER_PATTERN,
     API_NUMBER_PATTERN_TEXT,
+    POLYGON_POINTS_DESCRIPTION,
+    POLYGON_POINTS_EXAMPLES,
+    POLYGON_ROUTE_RESPONSES,
     WELL_ROUTE_RESPONSES,
 )
 from app.api_helpers import (
@@ -74,8 +77,20 @@ def create_app() -> FastAPI:
 
         return json_cache_response(well, request)
 
-    @api.get("/wells/polygon", tags=["wells"])
-    def wells_in_polygon(points: str, request: Request) -> Response:
+    @api.get(
+        "/wells/polygon",
+        tags=["wells"],
+        summary="Find wells inside a polygon",
+        response_description="A sorted list of API numbers inside the polygon.",
+        responses=POLYGON_ROUTE_RESPONSES,
+    )
+    def wells_in_polygon(
+        request: Request,
+        points: str = ApiQuery(
+            description=POLYGON_POINTS_DESCRIPTION,
+            examples=POLYGON_POINTS_EXAMPLES,
+        ),
+    ) -> Response:
         try:
             api_numbers = read_cached_polygon_api_numbers(resolved_database_path, points)
         except PolygonValidationError as error:

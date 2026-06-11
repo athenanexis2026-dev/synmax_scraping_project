@@ -105,6 +105,28 @@ def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path, mo
     assert cached_response.status_code == 304
 
 
+def test_wells_polygon_openapi_contract_documents_points_format(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    polygon_operation = response.json()["paths"]["/wells/polygon"]["get"]
+    parameter = polygon_operation["parameters"][0]
+    assert polygon_operation["summary"] == "Find wells inside a polygon"
+    assert parameter["name"] == "points"
+    assert "latitude,longitude" in parameter["schema"]["description"]
+    assert "32,-105;33,-105;33,-104;32,-104" in parameter["schema"]["examples"]
+
+
+def test_wells_polygon_requires_points_query_parameter(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
+
+    response = client.get("/wells/polygon")
+
+    assert response.status_code == 422
+
+
 def test_wells_polygon_rejects_two_distinct_points(tmp_path, monkeypatch) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
