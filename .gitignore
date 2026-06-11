@@ -8,4 +8,3 @@ venv/
 .env
 *.egg-info/
 data/cache/
-data/scrape_report.jsonl

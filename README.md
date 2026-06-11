@@ -8,12 +8,6 @@ The project will be built step by step:
 2. Serve that data through a small Python API.
 3. Generate the required polygon-search CSV.
 
-The canonical architecture and five-day build roadmap lives here:
-
-```text
-docs/SynMax_Takehome_Architecture_Plan.md
-```
-
 Part 1 ingestion has started. The current implementation can normalize a local source/export CSV,
 filter it to the assignment API numbers, and load the exact required `api_well_data` table into
 SQLite.
@@ -87,8 +81,6 @@ requests can use standard HTTP caching.
 - SQLite
 - FastAPI
 - Uvicorn
-- httpx
-- lxml
 - Shapely
 - pytest
 - ruff
@@ -96,5 +88,4 @@ requests can use standard HTTP caching.
 ## Current Status
 
 Step 1 has the database schema, field normalization, and local CSV-to-SQLite loader in place. Step
-2 has a read-only FastAPI service for health checks, single-well lookup, and polygon search. The
-live source acquisition adapter and enrichment fields will be added in later steps.
+2 has a read-only FastAPI service for health checks, single-well lookup, and polygon search.
