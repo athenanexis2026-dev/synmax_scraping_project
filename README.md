@@ -8,19 +8,55 @@ The project will be built step by step:
 2. Serve that data through a small Python API.
 3. Generate the required polygon-search CSV.
 
-Part 1 ingestion has started. The current implementation can normalize a local source/export CSV,
-filter it to the assignment API numbers, and load the exact required `api_well_data` table into
-SQLite.
+Part 1 ingestion scrapes the official NM OCD Well Details pages for the provided API numbers,
+normalizes the fields, and loads the exact required `api_well_data` table into SQLite.
 
 ```bash
-python -m app.cli load-db \
-  --api-csv apis_pythondev_test.csv \
-  --source-csv data/nm_ocd_expanded_export.csv \
-  --database sqlite.db
+cp .env.example .env
 ```
 
-The source/export CSV should contain NM OCD expanded-results-style headers such as `API`,
-`Current Operator`, `Status`, `Type`, `Work Type`, `Latitude`, and `Longitude`.
+Add your Firecrawl key to `.env` once. Keep `.env` local; it is ignored by git.
+
+Before the first full scrape, verify the persistent Firecrawl browser profile against the protected
+NM OCD site:
+
+```bash
+make open-session
+```
+
+Open the interactive Firecrawl URL printed by that command. If the official page shows a
+Cloudflare/Turnstile challenge, complete it there and wait until the real Well Details data is
+visible. Keep that session open and confirm the scraper can parse through the same live browser:
+
+```bash
+make check-session
+```
+
+If `make check-session` confirms it can parse one well, run the ingestion while the browser session
+is still open. After ingestion finishes, close the session.
+
+```bash
+make scraping
+make load-db
+make close-session
+```
+
+Or run the whole ingestion:
+
+```bash
+make ingest
+```
+
+The scraper uses Firecrawl's single-page scrape endpoint with a named browser profile, so a
+verified profile can preserve cookies/session state for the protected NM OCD pages. It writes:
+
+- `data/api_well_data_scraped.csv`
+- `data/scrape_report.json`
+- `data/scrape_checkpoint.json`
+
+If protected pages are returned instead of well data, the scraper stops after repeated blocks and
+reports those APIs instead of guessing values. Rerun `make open-session`, complete the challenge,
+keep the session open, and retry `make ingest`; the checkpoint allows the scraper to resume.
 
 ## Running the API
 
@@ -31,7 +67,7 @@ table to be named `api_well_data` and the stored `API` values to be digit-only t
 make start
 ```
 
-The API requires `SYNMAX_DATABASE_PATH` in the process environment. You can keep that value in
+The API uses `SYNMAX_DATABASE_PATH` from the process environment. You can keep that value in
 `.env`, and `make start` will load it before starting the API:
 
 ```bash
@@ -87,5 +123,6 @@ requests can use standard HTTP caching.
 
 ## Current Status
 
-Step 1 has the database schema, field normalization, and local CSV-to-SQLite loader in place. Step
-2 has a read-only FastAPI service for health checks, single-well lookup, and polygon search.
+Step 1 has single-source Well Details scraping, field normalization, checkpointing, reporting, and
+SQLite loading in place. Step 2 has a read-only FastAPI service for health checks, single-well
+lookup, and polygon search.

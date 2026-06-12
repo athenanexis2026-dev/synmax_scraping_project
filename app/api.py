@@ -46,7 +46,7 @@ def create_app() -> FastAPI:
             finally:
                 connection.close()
         except DatabaseUnavailable as error:
-            raise HTTPException(status_code=503, message=str(error)) from error
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
         return {"status": "ok", "database": "connected"}
 
@@ -70,10 +70,10 @@ def create_app() -> FastAPI:
         try:
             well = read_cached_well(resolved_database_path, normalized_api)
         except DatabaseUnavailable as error:
-            raise HTTPException(status_code=503, message=str(error)) from error
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
         if well is None:
-            raise HTTPException(status_code=404, message="Well not found")
+            raise HTTPException(status_code=404, detail="Well not found")
 
         return json_cache_response(well, request)
 
@@ -94,9 +94,9 @@ def create_app() -> FastAPI:
         try:
             api_numbers = read_cached_polygon_api_numbers(resolved_database_path, points)
         except PolygonValidationError as error:
-            raise HTTPException(status_code=422, message=str(error)) from error
+            raise HTTPException(status_code=422, detail=str(error)) from error
         except DatabaseUnavailable as error:
-            raise HTTPException(status_code=503, message=str(error)) from error
+            raise HTTPException(status_code=503, detail=str(error)) from error
 
         return json_cache_response(
             {"api_numbers": api_numbers, "count": len(api_numbers)},
@@ -110,7 +110,7 @@ def normalize_hyphenated_api_number(api_number: str) -> str:
     """Validate a public hyphenated API number and return its digit-only storage key."""
 
     if not API_NUMBER_PATTERN.fullmatch(api_number):
-        raise HTTPException(status_code=422, message=API_NUMBER_ERROR)
+        raise HTTPException(status_code=422, detail=API_NUMBER_ERROR)
     return api_number.replace("-", "")
 
 app = create_app()

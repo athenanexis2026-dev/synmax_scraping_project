@@ -10,20 +10,22 @@ from typing import Any
 
 from app.schema import ASSIGNMENT_COLUMNS, INTEGER_COLUMNS, REAL_COLUMNS
 
-# COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMMA IS CORRECT
-
 FIELD_MAPPING = {
     "Current Operator": "Operator",
     "Status": "Status",
     "Type": "Well Type",
     "Work Type": "Work Type",
+    "Direction": "Directional Status",
+    "Single / Multi Compl": "Single/Multiple Completion",
     "Mineral Owner": "Mineral Owner",
     "Surface Owner": "Surface Owner",
     "Projection": "CRS",
     "True Vertical Depth": "TVD",
+    "Lat / Long CRS": "CRS",
     "Elevation": "GL Elevation",
     "Kelly Bushing": "KB Elevation",
     "Drilling Floor": "DF Elevation",
+    "Spud": "Spud Date",
     "Spud Date": "Spud Date",
     "Last Inspection": "Last Inspection",
     "Latitude": "Latitude",

@@ -8,3 +8,4 @@ venv/
 .env
 *.egg-info/
 data/cache/
+data/firecrawl_browser_session.json

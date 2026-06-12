@@ -5,6 +5,7 @@ from app.storage import (
     get_well,
     initialize_database,
     iter_wells_in_bounds,
+    recreate_database,
     upsert_wells,
 )
 
@@ -76,5 +77,25 @@ def test_count_and_iter_wells_in_bounds_excludes_null_coordinates(tmp_path) -> N
         assert [candidate["API"] for candidate in candidates] == ["3001500001"]
         assert candidates[0]["Latitude"] == 32.5
         assert candidates[0]["Longitude"] == -104.1
+    finally:
+        connection.close()
+
+
+def test_recreate_database_rebuilds_assignment_schema(tmp_path) -> None:
+    database_path = tmp_path / "sqlite.db"
+    connection = connect(database_path)
+    try:
+        connection.execute('CREATE TABLE api_well_data ("API" TEXT, old_column TEXT)')
+        connection.commit()
+
+        recreate_database(connection)
+
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(api_well_data)").fetchall()
+        }
+        assert "old_column" not in columns
+        assert "Single/Multiple Completion" in columns
+        assert "Potash Waiver" in columns
     finally:
         connection.close()

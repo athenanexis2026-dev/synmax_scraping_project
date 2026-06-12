@@ -1,4 +1,4 @@
-"""SQLite persistence helpers for well data."""
+"""SQLite database access for creating, loading, and querying normalized well data."""
 
 from __future__ import annotations
 
@@ -34,6 +34,9 @@ SNAKE_CASE_COLUMN_ALIASES = {
 }
 
 
+# ============================================================================
+# CONNECTION AND SCHEMA SETUP
+# ============================================================================
 def connect(database_path: Path | str) -> sqlite3.Connection:
     """Open a SQLite connection with row dictionaries enabled."""
 
@@ -50,6 +53,16 @@ def initialize_database(connection: sqlite3.Connection) -> None:
     connection.commit()
 
 
+def recreate_database(connection: sqlite3.Connection) -> None:
+    """Recreate the assignment table from scratch."""
+
+    connection.execute("DROP TABLE IF EXISTS api_well_data")
+    initialize_database(connection)
+
+
+# ============================================================================
+# WRITE OPERATIONS
+# ============================================================================
 def upsert_wells(connection: sqlite3.Connection, records: Iterable[Mapping[str, Any]]) -> int:
     """Insert or replace normalized well records by API number."""
 
@@ -72,6 +85,9 @@ def upsert_wells(connection: sqlite3.Connection, records: Iterable[Mapping[str, 
     return len(rows)
 
 
+# ============================================================================
+# READ OPERATIONS
+# ============================================================================
 def get_well(connection: sqlite3.Connection, api_number: str) -> dict[str, Any] | None:
     """Return one well row as a plain dictionary."""
 
@@ -124,6 +140,9 @@ def iter_wells_in_bounds(
     return [dict(row) for row in rows]
 
 
+# ============================================================================
+# SCHEMA COMPATIBILITY HELPERS
+# ============================================================================
 def _table_columns(connection: sqlite3.Connection) -> set[str]:
     rows = connection.execute("PRAGMA table_info(api_well_data)").fetchall()
     return {str(row["name"]) for row in rows}
