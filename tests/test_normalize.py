@@ -5,8 +5,6 @@ from app.utils.normalize import (
     read_api_numbers,
 )
 
-# COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMA/TESTS IS CORRECT
-
 
 def test_normalize_api_number_keeps_digits_only() -> None:
     assert normalize_api_number("30-015-12345") == "3001512345"

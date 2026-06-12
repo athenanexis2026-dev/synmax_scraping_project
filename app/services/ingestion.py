@@ -4,21 +4,21 @@ from __future__ import annotations
 
 import csv
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 from app.repositories.schema import ASSIGNMENT_COLUMNS
-from app.services.well_details import (
+from app.services.well_details.errors import (
     FirecrawlScrapeError,
     ProtectedPageError,
     WellDetailsParseError,
-    build_well_details_url,
-    parse_well_details_html,
 )
+from app.services.well_details.parser import parse_well_details_html
+from app.services.well_details.urls import build_well_details_url
 from app.utils.normalize import normalize_record, read_api_numbers
-from app.utils.scrape_timing import sleep_with_heartbeat
 
 
 class WellDetailsClient(Protocol):
@@ -39,6 +39,19 @@ class ScrapeConfig:
     retry_backoff_seconds: float = 5.0
     blocked_stop_threshold: int = 3
     resume: bool = True
+
+
+# ============================================================================
+# SCRAPER TIMING HELPERS
+# ============================================================================
+def sleep_with_heartbeat(seconds: float, sleeper: Callable[[float], None] = time.sleep) -> None:
+    """Sleep in short beats so scraper pacing is visible and interruptible."""
+
+    remaining = max(0.0, seconds)
+    while remaining > 0:
+        beat = min(1.0, remaining)
+        sleeper(beat)
+        remaining -= beat
 
 
 # ============================================================================

@@ -9,17 +9,16 @@ from pathlib import Path
 
 from app.repositories.wells import connect, initialize_database, recreate_database, upsert_wells
 from app.services.ingestion import ScrapeConfig, scrape_wells
-from app.services.well_details import (
+from app.services.well_details.clients import (
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_SCRAPE_URL,
     FirecrawlBrowserClient,
-    FirecrawlBrowserError,
     FirecrawlBrowserSessionWellDetailsClient,
     FirecrawlWellDetailsClient,
-    ProtectedPageError,
-    build_well_details_url,
-    parse_well_details_html,
 )
+from app.services.well_details.errors import FirecrawlBrowserError, ProtectedPageError
+from app.services.well_details.parser import parse_well_details_html
+from app.services.well_details.urls import build_well_details_url
 from app.utils.normalize import normalize_records, read_api_numbers, read_source_records
 
 

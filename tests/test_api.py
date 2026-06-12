@@ -2,6 +2,8 @@ import os
 
 from fastapi.testclient import TestClient
 
+# Importing app.main creates a module-level ASGI app, so give that import a
+# harmless default database path. Individual tests override it with monkeypatch.
 os.environ.setdefault("SYNMAX_DATABASE_PATH", "api_well_data.db")
 
 from app.main import create_app

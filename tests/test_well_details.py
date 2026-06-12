@@ -2,14 +2,18 @@ import json
 
 import pytest
 
-from app.services.well_details import (
+from app.services.well_details.clients import (
     FirecrawlBrowserSessionWellDetailsClient,
     FirecrawlWellDetailsClient,
-    ProtectedPageError,
-    build_well_details_url,
-    hyphenate_api_number,
+)
+from app.services.well_details.errors import ProtectedPageError
+from app.services.well_details.parser import (
     parse_well_details_html,
     well_details_snapshot_to_html,
+)
+from app.services.well_details.urls import (
+    build_well_details_url,
+    hyphenate_api_number,
 )
 from app.utils.normalize import normalize_record
 

@@ -1,9 +1,12 @@
 import csv
 import sqlite3
 import sys
+from pathlib import Path
 
 import app.cli as cli
-import app.services.cli_commands as cli_commands
+import app.cli.commands as cli_commands
+
+API_NUMBER = "30-045-35432"
 
 
 def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
@@ -11,18 +14,13 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
     monkeypatch,
 ) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text(
-        "\n".join(
-            [
-                "FIRECRAWL_API_KEY=fc-test",
-                "NM_OCD_FIRECRAWL_PROFILE=nm-ocd-test",
-                "NM_OCD_REQUEST_DELAY_SECONDS=11",
-            ]
-        ),
-        encoding="utf-8",
+    _write_env_file(
+        env_file,
+        FIRECRAWL_API_KEY="fc-test",
+        NM_OCD_FIRECRAWL_PROFILE="nm-ocd-test",
+        NM_OCD_REQUEST_DELAY_SECONDS="11",
     )
-    api_csv = tmp_path / "apis.csv"
-    api_csv.write_text("api\n30-045-35432\n", encoding="utf-8")
+    api_csv = _write_api_csv(tmp_path)
     captured = {}
 
     class FakeFirecrawlClient:
@@ -44,24 +42,20 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
     monkeypatch.delenv("NM_OCD_REQUEST_DELAY_SECONDS", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlWellDetailsClient", FakeFirecrawlClient)
     monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "synmax",
-            "scrape-wells",
-            "--env-file",
-            str(env_file),
-            "--api-csv",
-            str(api_csv),
-            "--output-csv",
-            str(tmp_path / "wells.csv"),
-            "--report-json",
-            str(tmp_path / "report.json"),
-            "--checkpoint-json",
-            str(tmp_path / "checkpoint.json"),
-            "--no-browser-session",
-        ],
+    _set_cli_args(
+        monkeypatch,
+        "scrape-wells",
+        "--env-file",
+        str(env_file),
+        "--api-csv",
+        str(api_csv),
+        "--output-csv",
+        str(tmp_path / "wells.csv"),
+        "--report-json",
+        str(tmp_path / "report.json"),
+        "--checkpoint-json",
+        str(tmp_path / "checkpoint.json"),
+        "--no-browser-session",
     )
 
     cli.main()
@@ -78,17 +72,12 @@ def test_open_session_command_writes_session_file_and_prints_interactive_url(
     capsys,
 ) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text(
-        "\n".join(
-            [
-                "FIRECRAWL_API_KEY=fc-test",
-                "NM_OCD_FIRECRAWL_PROFILE=nm-ocd-test",
-            ]
-        ),
-        encoding="utf-8",
+    _write_env_file(
+        env_file,
+        FIRECRAWL_API_KEY="fc-test",
+        NM_OCD_FIRECRAWL_PROFILE="nm-ocd-test",
     )
-    api_csv = tmp_path / "apis.csv"
-    api_csv.write_text("api\n30-045-35432\n", encoding="utf-8")
+    api_csv = _write_api_csv(tmp_path)
     session_json = tmp_path / "session.json"
     captured = {}
 
@@ -111,19 +100,15 @@ def test_open_session_command_writes_session_file_and_prints_interactive_url(
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "synmax",
-            "open-session",
-            "--env-file",
-            str(env_file),
-            "--api-csv",
-            str(api_csv),
-            "--session-json",
-            str(session_json),
-        ],
+    _set_cli_args(
+        monkeypatch,
+        "open-session",
+        "--env-file",
+        str(env_file),
+        "--api-csv",
+        str(api_csv),
+        "--session-json",
+        str(session_json),
     )
 
     cli.main()
@@ -131,7 +116,7 @@ def test_open_session_command_writes_session_file_and_prints_interactive_url(
     assert captured["client_kwargs"]["api_key"] == "fc-test"
     assert captured["create_kwargs"]["profile_name"] == "nm-ocd-test"
     assert captured["execute"]["session_id"] == "browser-1"
-    assert "30-045-35432" in captured["execute"]["code"]
+    assert API_NUMBER in captured["execute"]["code"]
     assert "https://liveview.test/interactive" in capsys.readouterr().out
     assert '"id": "browser-1"' in session_json.read_text(encoding="utf-8")
 
@@ -141,7 +126,7 @@ def test_close_session_command_closes_saved_browser_session(
     monkeypatch,
 ) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text("FIRECRAWL_API_KEY=fc-test\n", encoding="utf-8")
+    _write_env_file(env_file, FIRECRAWL_API_KEY="fc-test")
     session_json = tmp_path / "session.json"
     session_json.write_text('{"id": "browser-1"}', encoding="utf-8")
     captured = {}
@@ -156,17 +141,13 @@ def test_close_session_command_closes_saved_browser_session(
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "synmax",
-            "close-session",
-            "--env-file",
-            str(env_file),
-            "--session-json",
-            str(session_json),
-        ],
+    _set_cli_args(
+        monkeypatch,
+        "close-session",
+        "--env-file",
+        str(env_file),
+        "--session-json",
+        str(session_json),
     )
 
     cli.main()
@@ -177,16 +158,15 @@ def test_close_session_command_closes_saved_browser_session(
 
 
 def test_load_db_command_replaces_schema_and_loads_scraped_rows(tmp_path, monkeypatch) -> None:
-    api_csv = tmp_path / "apis.csv"
+    api_csv = _write_api_csv(tmp_path)
     source_csv = tmp_path / "wells.csv"
     database = tmp_path / "api_well_data.db"
-    api_csv.write_text("api\n30-045-35432\n", encoding="utf-8")
     with source_csv.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=["API", "Operator", "Latitude", "Longitude"])
         writer.writeheader()
         writer.writerow(
             {
-                "API": "30-045-35432",
+                "API": API_NUMBER,
                 "Operator": "DJR OPERATING, LLC",
                 "Latitude": "36.3313293",
                 "Longitude": "-107.8383865",
@@ -200,22 +180,18 @@ def test_load_db_command_replaces_schema_and_loads_scraped_rows(tmp_path, monkey
     finally:
         connection.close()
 
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "synmax",
-            "load-db",
-            "--env-file",
-            str(tmp_path / "missing.env"),
-            "--api-csv",
-            str(api_csv),
-            "--source-csv",
-            str(source_csv),
-            "--database",
-            str(database),
-            "--replace",
-        ],
+    _set_cli_args(
+        monkeypatch,
+        "load-db",
+        "--env-file",
+        str(tmp_path / "missing.env"),
+        "--api-csv",
+        str(api_csv),
+        "--source-csv",
+        str(source_csv),
+        "--database",
+        str(database),
+        "--replace",
     )
 
     cli.main()
@@ -238,3 +214,20 @@ def test_load_db_command_replaces_schema_and_loads_scraped_rows(tmp_path, monkey
     assert row["Operator"] == "DJR OPERATING, LLC"
     assert row["Latitude"] == 36.3313293
     assert row["Longitude"] == -107.8383865
+
+
+def _write_env_file(path: Path, **values: str) -> None:
+    path.write_text(
+        "\n".join(f"{key}={value}" for key, value in values.items()),
+        encoding="utf-8",
+    )
+
+
+def _write_api_csv(tmp_path: Path) -> Path:
+    api_csv = tmp_path / "apis.csv"
+    api_csv.write_text(f"api\n{API_NUMBER}\n", encoding="utf-8")
+    return api_csv
+
+
+def _set_cli_args(monkeypatch, command: str, *args: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["synmax", command, *args])
