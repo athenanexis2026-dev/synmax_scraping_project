@@ -4,10 +4,10 @@ from fastapi.testclient import TestClient
 
 os.environ.setdefault("SYNMAX_DATABASE_PATH", "api_well_data.db")
 
-from app.api import create_app
-from app.normalize import normalize_record
-from app.schema import ASSIGNMENT_COLUMNS
-from app.storage import connect, initialize_database, upsert_wells
+from app.main import create_app
+from app.repositories.schema import ASSIGNMENT_COLUMNS
+from app.repositories.wells import connect, initialize_database, upsert_wells
+from app.utils.normalize import normalize_record
 
 
 def test_health_returns_database_status(tmp_path, monkeypatch) -> None:

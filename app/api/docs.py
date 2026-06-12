@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 
 # ============================================================================
 # APPLICATION METADATA
@@ -26,16 +24,11 @@ APP_METADATA = {
 # ============================================================================
 # WELL ROUTE DOCUMENTATION
 # ============================================================================
-API_NUMBER_PATTERN_TEXT = r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$"
-API_NUMBER_PATTERN = re.compile(API_NUMBER_PATTERN_TEXT)
 API_NUMBER_DESCRIPTION = (
     "Hyphenated New Mexico API number. Use `30-015-25325` for 10-digit APIs or "
     "`30-015-45678-0000` for 14-digit APIs."
 )
 API_NUMBER_EXAMPLES = ["30-015-25325", "30-015-45678-0000"]
-API_NUMBER_ERROR = (
-    "api_number must use a hyphenated format like 30-015-25325 or 30-015-45678-0000"
-)
 WELL_RESPONSE_EXAMPLE = {
     "Operator": "Permian Star Energy",
     "Status": "Active",
@@ -96,4 +89,3 @@ POLYGON_ROUTE_RESPONSES = {
     422: {"description": "The polygon points are missing, malformed, or invalid."},
     503: {"description": "The configured SQLite database is unavailable."},
 }
-

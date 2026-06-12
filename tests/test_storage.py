@@ -1,5 +1,4 @@
-from app.normalize import normalize_record
-from app.storage import (
+from app.repositories.wells import (
     connect,
     count_wells,
     get_well,
@@ -8,6 +7,7 @@ from app.storage import (
     recreate_database,
     upsert_wells,
 )
+from app.utils.normalize import normalize_record
 
 
 def test_initialize_and_upsert_wells(tmp_path) -> None:

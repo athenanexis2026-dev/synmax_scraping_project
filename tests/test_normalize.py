@@ -1,4 +1,9 @@
-from app.normalize import read_api_numbers, normalize_api_number, normalize_record, normalize_records
+from app.utils.normalize import (
+    normalize_api_number,
+    normalize_record,
+    normalize_records,
+    read_api_numbers,
+)
 
 # COMMENT: RETURN TO THIS TO CHECK IF THE SCHEMA/TESTS IS CORRECT
 

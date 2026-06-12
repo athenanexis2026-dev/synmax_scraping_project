@@ -5,7 +5,12 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from app.core.exceptions import DatabaseUnavailable
+
+# ============================================================================
+# DATABASE EXCEPTIONS
+# ============================================================================
+class DatabaseUnavailable(RuntimeError):
+    """Raised when the configured SQLite database cannot be read."""
 
 
 # ============================================================================
@@ -21,4 +26,3 @@ def connect_readonly(database_path: Path) -> sqlite3.Connection:
         return connection
     except (OSError, sqlite3.Error) as error:
         raise DatabaseUnavailable(f"Database unavailable: {error}") from error
-

@@ -2,8 +2,7 @@ import json
 
 import pytest
 
-from app.normalize import normalize_record
-from app.well_details import (
+from app.services.well_details import (
     FirecrawlBrowserSessionWellDetailsClient,
     FirecrawlWellDetailsClient,
     ProtectedPageError,
@@ -12,6 +11,7 @@ from app.well_details import (
     parse_well_details_html,
     well_details_snapshot_to_html,
 )
+from app.utils.normalize import normalize_record
 
 
 WELL_DETAILS_HTML = """

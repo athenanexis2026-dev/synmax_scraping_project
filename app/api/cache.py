@@ -9,7 +9,11 @@ from typing import Any
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-from app.config.api import CACHE_CONTROL
+
+# ============================================================================
+# HTTP CACHE SETTINGS
+# ============================================================================
+CACHE_CONTROL = "public, max-age=300"
 
 
 # ============================================================================

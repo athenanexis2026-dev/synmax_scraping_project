@@ -1,6 +1,6 @@
 import pytest
 
-from app.geo import (
+from app.utils.geo import (
     PolygonValidationError,
     parse_polygon_points,
     point_is_covered_by_polygon,

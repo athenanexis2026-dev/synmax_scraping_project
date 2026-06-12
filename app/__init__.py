@@ -1,0 +1,1 @@
+"""SynMax backend application package."""

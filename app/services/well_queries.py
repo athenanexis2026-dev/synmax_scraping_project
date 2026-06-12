@@ -6,8 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from app.core.exceptions import DatabaseUnavailable
-from app.repositories.sqlite import connect_readonly
+from app.repositories.sqlite import DatabaseUnavailable, connect_readonly
 from app.repositories.wells import get_well, iter_wells_in_bounds
 from app.utils.geo import parse_polygon_points, point_is_covered_by_polygon
 
@@ -94,4 +93,3 @@ def _cached_polygon_api_numbers(
         )
     ]
     return sorted(matching_api_numbers)
-

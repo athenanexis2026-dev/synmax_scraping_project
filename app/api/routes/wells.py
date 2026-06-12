@@ -8,15 +8,14 @@ from fastapi.responses import Response
 from app.api.docs import (
     API_NUMBER_DESCRIPTION,
     API_NUMBER_EXAMPLES,
-    API_NUMBER_PATTERN_TEXT,
     POLYGON_POINTS_DESCRIPTION,
     POLYGON_POINTS_EXAMPLES,
     POLYGON_ROUTE_RESPONSES,
     WELL_ROUTE_RESPONSES,
 )
-from app.core.cache import json_cache_response
-from app.core.exceptions import DatabaseUnavailable
-from app.schemas.wells import normalize_hyphenated_api_number
+from app.api.cache import json_cache_response
+from app.repositories.sqlite import DatabaseUnavailable
+from app.schemas.wells import API_NUMBER_PATTERN_TEXT, normalize_hyphenated_api_number
 from app.services.well_queries import read_cached_polygon_api_numbers, read_cached_well
 from app.utils.geo import PolygonValidationError
 

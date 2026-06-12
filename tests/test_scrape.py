@@ -1,7 +1,7 @@
 import csv
 import json
 
-from app.scrape import ScrapeConfig, scrape_wells
+from app.services.ingestion import ScrapeConfig, scrape_wells
 
 
 def _well_html(api: str) -> str:

@@ -3,6 +3,7 @@ import sqlite3
 import sys
 
 import app.cli as cli
+import app.services.cli_commands as cli_commands
 
 
 def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
@@ -41,8 +42,8 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.delenv("NM_OCD_REQUEST_DELAY_SECONDS", raising=False)
-    monkeypatch.setattr(cli, "FirecrawlWellDetailsClient", FakeFirecrawlClient)
-    monkeypatch.setattr(cli, "scrape_wells", fake_scrape_wells)
+    monkeypatch.setattr(cli_commands, "FirecrawlWellDetailsClient", FakeFirecrawlClient)
+    monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -109,7 +110,7 @@ def test_open_session_command_writes_session_file_and_prints_interactive_url(
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
-    monkeypatch.setattr(cli, "FirecrawlBrowserClient", FakeBrowserClient)
+    monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -154,7 +155,7 @@ def test_close_session_command_closes_saved_browser_session(
             return {"success": True}
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
-    monkeypatch.setattr(cli, "FirecrawlBrowserClient", FakeBrowserClient)
+    monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(
         sys,
         "argv",

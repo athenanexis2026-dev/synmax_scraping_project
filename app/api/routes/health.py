@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.core.exceptions import DatabaseUnavailable
-from app.repositories.sqlite import connect_readonly
+from app.repositories.sqlite import DatabaseUnavailable, connect_readonly
 
 router = APIRouter(tags=["health"])
 
@@ -26,4 +25,3 @@ def health(request: Request) -> dict[str, str]:
         raise HTTPException(status_code=503, detail=str(error)) from error
 
     return {"status": "ok", "database": "connected"}
-

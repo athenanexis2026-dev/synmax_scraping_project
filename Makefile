@@ -1,7 +1,7 @@
 .PHONY: start open-session close-session check-session scraping load-db ingest test lint
 
 start:
-	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/uvicorn app.api:app --reload
+	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/uvicorn app.main:app --reload
 
 open-session:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli open-session
