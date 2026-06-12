@@ -1,2 +1,0 @@
-"""Small shared utility modules."""
-
