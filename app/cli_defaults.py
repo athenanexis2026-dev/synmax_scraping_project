@@ -1,19 +1,39 @@
-"""Default paths and tuning values used by the SynMax CLI."""
+"""Compatibility facade for CLI default values."""
 
 from __future__ import annotations
 
-from pathlib import Path
+from app.config.cli import (
+    DEFAULT_API_CSV,
+    DEFAULT_BLOCKED_STOP_THRESHOLD,
+    DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS,
+    DEFAULT_BROWSER_SESSION_JSON,
+    DEFAULT_BROWSER_TTL_SECONDS,
+    DEFAULT_BROWSER_WAIT_MS,
+    DEFAULT_DATABASE,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_REQUEST_DELAY_SECONDS,
+    DEFAULT_RETRY_BACKOFF_SECONDS,
+    DEFAULT_SCRAPE_CHECKPOINT_JSON,
+    DEFAULT_SCRAPE_OUTPUT_CSV,
+    DEFAULT_SCRAPE_REPORT_JSON,
+)
 
-DEFAULT_API_CSV = Path("data/apis_pythondev_test.csv")
-DEFAULT_SCRAPE_OUTPUT_CSV = Path("data/api_well_data_scraped.csv")
-DEFAULT_SCRAPE_REPORT_JSON = Path("data/scrape_report.json")
-DEFAULT_SCRAPE_CHECKPOINT_JSON = Path("data/scrape_checkpoint.json")
-DEFAULT_BROWSER_SESSION_JSON = Path("data/firecrawl_browser_session.json")
-DEFAULT_DATABASE = Path("api_well_data.db")
-DEFAULT_REQUEST_DELAY_SECONDS = 7.0
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
-DEFAULT_BLOCKED_STOP_THRESHOLD = 3
-DEFAULT_BROWSER_TTL_SECONDS = 900
-DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS = 900
-DEFAULT_BROWSER_WAIT_MS = 5000
+
+# ============================================================================
+# PUBLIC RE-EXPORTS
+# ============================================================================
+__all__ = [
+    "DEFAULT_API_CSV",
+    "DEFAULT_BLOCKED_STOP_THRESHOLD",
+    "DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS",
+    "DEFAULT_BROWSER_SESSION_JSON",
+    "DEFAULT_BROWSER_TTL_SECONDS",
+    "DEFAULT_BROWSER_WAIT_MS",
+    "DEFAULT_DATABASE",
+    "DEFAULT_MAX_RETRIES",
+    "DEFAULT_REQUEST_DELAY_SECONDS",
+    "DEFAULT_RETRY_BACKOFF_SECONDS",
+    "DEFAULT_SCRAPE_CHECKPOINT_JSON",
+    "DEFAULT_SCRAPE_OUTPUT_CSV",
+    "DEFAULT_SCRAPE_REPORT_JSON",
+]

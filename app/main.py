@@ -1,11 +1,11 @@
-"""Compatibility facade for scraper timing helpers."""
+"""ASGI entrypoint for the SynMax Well Data API."""
 
 from __future__ import annotations
 
-from app.utils.scrape_timing import sleep_with_heartbeat
+from app.api.app_factory import app, create_app
 
 
 # ============================================================================
-# PUBLIC RE-EXPORTS
+# PUBLIC ASGI APP
 # ============================================================================
-__all__ = ["sleep_with_heartbeat"]
+__all__ = ["app", "create_app"]

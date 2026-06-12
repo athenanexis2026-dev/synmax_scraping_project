@@ -1,11 +1,10 @@
-"""Compatibility facade for scraper timing helpers."""
+"""Runtime API configuration constants."""
 
 from __future__ import annotations
 
-from app.utils.scrape_timing import sleep_with_heartbeat
-
 
 # ============================================================================
-# PUBLIC RE-EXPORTS
+# HTTP CACHE SETTINGS
 # ============================================================================
-__all__ = ["sleep_with_heartbeat"]
+CACHE_CONTROL = "public, max-age=300"
+

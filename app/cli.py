@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 
-from app.cli_defaults import (
+from app.config.cli import (
     DEFAULT_API_CSV,
     DEFAULT_BLOCKED_STOP_THRESHOLD,
     DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS,
@@ -22,10 +22,9 @@ from app.cli_defaults import (
     DEFAULT_SCRAPE_OUTPUT_CSV,
     DEFAULT_SCRAPE_REPORT_JSON,
 )
-from app.normalize import normalize_records, read_api_numbers, read_source_records
-from app.scrape import ScrapeConfig, scrape_wells
-from app.storage import connect, initialize_database, recreate_database, upsert_wells
-from app.well_details import (
+from app.repositories.wells import connect, initialize_database, recreate_database, upsert_wells
+from app.services.ingestion import ScrapeConfig, scrape_wells
+from app.services.well_details import (
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_SCRAPE_URL,
     FirecrawlBrowserClient,
@@ -36,6 +35,7 @@ from app.well_details import (
     build_well_details_url,
     parse_well_details_html,
 )
+from app.utils.normalize import normalize_records, read_api_numbers, read_source_records
 
 
 # ============================================================================

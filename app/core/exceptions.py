@@ -1,11 +1,11 @@
-"""Compatibility facade for scraper timing helpers."""
+"""Shared application exceptions."""
 
 from __future__ import annotations
 
-from app.utils.scrape_timing import sleep_with_heartbeat
-
 
 # ============================================================================
-# PUBLIC RE-EXPORTS
+# API EXCEPTIONS
 # ============================================================================
-__all__ = ["sleep_with_heartbeat"]
+class DatabaseUnavailable(RuntimeError):
+    """Raised when the configured SQLite database cannot be read."""
+

@@ -1,28 +1,33 @@
-"""Compatibility facade for NM OCD Well Details fetching and parsing helpers."""
+"""Service helpers for fetching and parsing NM OCD Well Details pages."""
 
 from __future__ import annotations
 
-from app.services.well_details import (
+from app.services.well_details.clients import (
     BROWSER_USER_AGENT,
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_SCRAPE_URL,
-    WELL_DETAILS_URL_TEMPLATE,
     FirecrawlBrowserClient,
-    FirecrawlBrowserError,
     FirecrawlBrowserSessionWellDetailsClient,
-    FirecrawlScrapeError,
     FirecrawlWellDetailsClient,
     OpenRequest,
+)
+from app.services.well_details.errors import (
+    FirecrawlBrowserError,
+    FirecrawlScrapeError,
     ProtectedPageError,
     WellDetailsError,
     WellDetailsParseError,
-    build_well_details_url,
-    hyphenate_api_number,
+)
+from app.services.well_details.parser import (
     is_protected_without_data,
     parse_well_details_html,
     well_details_snapshot_to_html,
 )
-from app.utils.scrape_timing import sleep_with_heartbeat
+from app.services.well_details.urls import (
+    WELL_DETAILS_URL_TEMPLATE,
+    build_well_details_url,
+    hyphenate_api_number,
+)
 
 
 # ============================================================================
@@ -46,7 +51,6 @@ __all__ = [
     "hyphenate_api_number",
     "is_protected_without_data",
     "parse_well_details_html",
-    "sleep_with_heartbeat",
     "well_details_snapshot_to_html",
 ]
 
