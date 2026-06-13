@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import time
 from pathlib import Path
 
 from app.repositories.wells import connect, initialize_database, recreate_database, upsert_wells
@@ -16,7 +18,12 @@ from app.services.well_details.clients import (
     FirecrawlBrowserSessionWellDetailsClient,
     FirecrawlWellDetailsClient,
 )
-from app.services.well_details.errors import FirecrawlBrowserError, ProtectedPageError
+from app.services.well_details.errors import (
+    FirecrawlBrowserError,
+    FirecrawlScrapeError,
+    ProtectedPageError,
+    WellDetailsParseError,
+)
 from app.services.well_details.parser import parse_well_details_html
 from app.services.well_details.urls import build_well_details_url
 from app.utils.normalize import normalize_records, read_api_numbers, read_source_records
@@ -35,9 +42,42 @@ DEFAULT_REQUEST_DELAY_SECONDS = 7.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
 DEFAULT_BLOCKED_STOP_THRESHOLD = 3
+SUPERVISED_BLOCKED_STOP_THRESHOLD = 1
 DEFAULT_BROWSER_TTL_SECONDS = 900
 DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS = 900
 DEFAULT_BROWSER_WAIT_MS = 5000
+DEFAULT_PROFILE_PREFIX = "nm-ocd-verified-"
+DEFAULT_INITIAL_PROFILE_NUMBER = 6
+DEFAULT_MAX_SESSION_REFRESHES = 3
+DEFAULT_VERIFICATION_TIMEOUT_SECONDS = 600.0
+DEFAULT_VERIFICATION_CHECK_INTERVAL_SECONDS = 10.0
+PROFILE_ENV_KEY = "NM_OCD_FIRECRAWL_PROFILE"
+TERMINAL_GREEN = "\033[32m"
+TERMINAL_RED = "\033[31m"
+TERMINAL_RESET = "\033[0m"
+SAFE_INFORMATION_MODAL_SCRIPT = """
+await page.evaluate(() => {
+  const safeLabels = [/^(close|ok|okay|i understand|got it)$/i];
+  const elements = Array.from(
+    document.querySelectorAll(
+      'button, [role="button"], input[type="button"], input[type="submit"], a'
+    )
+  );
+  const match = elements.find((element) => {
+    const label = (
+      element.innerText ||
+      element.value ||
+      element.getAttribute("aria-label") ||
+      ""
+    ).trim();
+    return safeLabels.some((pattern) => pattern.test(label));
+  });
+  if (match) {
+    match.click();
+  }
+});
+await page.waitForTimeout(500);
+"""
 
 
 # ============================================================================
@@ -81,68 +121,202 @@ def _add_scraping_command(subparsers, common: argparse.ArgumentParser) -> None:
         parents=[common],
         help="Scrape official NM OCD Well Details pages into a normalized CSV",
     )
-    _add_api_csv_option(scrape)
-    scrape.add_argument(
+    _add_scrape_options(scrape)
+    scrape.set_defaults(func=scrape_wells_command)
+
+    supervised = subparsers.add_parser(
+        "scrape-wells-supervised",
+        parents=[common],
+        help="Scrape wells and recover from protected-page stops with a supervised session",
+    )
+    _add_scrape_options(supervised)
+    supervised.add_argument(
+        "--profile-prefix",
+        default=DEFAULT_PROFILE_PREFIX,
+        help="Prefix for rotating Firecrawl profiles",
+    )
+    supervised.add_argument(
+        "--initial-profile-number",
+        default=DEFAULT_INITIAL_PROFILE_NUMBER,
+        type=int,
+        help="Profile number to use when NM_OCD_FIRECRAWL_PROFILE is missing",
+    )
+    supervised.add_argument(
+        "--max-session-refreshes",
+        default=DEFAULT_MAX_SESSION_REFRESHES,
+        type=int,
+        help="Maximum protected-page recovery sessions to open",
+    )
+    supervised.add_argument(
+        "--verification-timeout",
+        default=DEFAULT_VERIFICATION_TIMEOUT_SECONDS,
+        type=float,
+        help="Seconds to wait for manual Cloudflare verification",
+    )
+    supervised.add_argument(
+        "--verification-check-interval",
+        default=DEFAULT_VERIFICATION_CHECK_INTERVAL_SECONDS,
+        type=float,
+        help="Seconds between verification checks",
+    )
+    supervised.set_defaults(func=scrape_wells_supervised_command)
+
+
+def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
+    _add_api_csv_option(parser)
+    parser.add_argument(
         "--output-csv",
         default=DEFAULT_SCRAPE_OUTPUT_CSV,
         type=Path,
         help="Normalized scrape output CSV",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--report-json",
         default=DEFAULT_SCRAPE_REPORT_JSON,
         type=Path,
         help="Scrape report JSON path",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--checkpoint-json",
         default=DEFAULT_SCRAPE_CHECKPOINT_JSON,
         type=Path,
         help="Resume checkpoint JSON path",
     )
-    _add_browser_session_options(scrape)
-    scrape.add_argument(
+    _add_browser_session_options(parser)
+    parser.add_argument(
         "--request-delay",
         default=None,
         type=float,
         help="Seconds to wait between Well Details requests",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--max-retries",
         default=DEFAULT_MAX_RETRIES,
         type=int,
         help="Retries per API",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--retry-backoff",
         default=DEFAULT_RETRY_BACKOFF_SECONDS,
         type=float,
         help="Base seconds for retry backoff",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--blocked-stop-threshold",
         default=DEFAULT_BLOCKED_STOP_THRESHOLD,
         type=int,
         help="Stop after this many consecutive protected pages",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--no-resume",
         action="store_true",
         help="Ignore an existing scrape checkpoint and start fresh",
     )
-    scrape.add_argument(
+    parser.add_argument(
         "--allow-incomplete",
         action="store_true",
         help="Exit successfully even if some APIs were not scraped",
     )
-    scrape.set_defaults(func=scrape_wells_command)
 
 
 def scrape_wells_command(args: argparse.Namespace) -> None:
     """Scrape the requested Well Details pages and fail unless the scrape is complete."""
 
     api_key = _required_env("FIRECRAWL_API_KEY")
+    config = _scrape_config_from_args(args, resume=not args.no_resume)
+    client = _well_details_client_for_command(args, api_key)
 
+    report = scrape_wells(config, client)
+    _print_scrape_summary(report, args)
+    if report.get("stopped_reason"):
+        print(report["stopped_reason"])
+    if not args.allow_incomplete and report["missing_count"] > 0:
+        raise SystemExit(
+            "Scrape incomplete. Run `make open-session`, verify the page, "
+            "then `make close-session` and retry `make ingest`."
+        )
+
+
+def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
+    """Run the scraper and recover from protected-page stops with manual verification."""
+
+    api_key = _required_env("FIRECRAWL_API_KEY")
+    refresh_count = 0
+    first_run = True
+    show_progress = False
+
+    while True:
+        config = _scrape_config_from_args(
+            args,
+            resume=True if not first_run else not args.no_resume,
+            blocked_stop_threshold=SUPERVISED_BLOCKED_STOP_THRESHOLD,
+        )
+        report = scrape_wells(
+            config,
+            _well_details_client_for_command(args, api_key),
+            progress_callback=_print_supervised_progress if show_progress else None,
+        )
+        _print_scrape_summary(report, args)
+
+        if report["missing_count"] == 0:
+            return
+        if not _report_stopped_for_protection(report):
+            break
+        if refresh_count >= args.max_session_refreshes:
+            raise SystemExit(
+                "Scrape incomplete after {count} supervised session refreshes. "
+                "Last stop: {reason}".format(
+                    count=refresh_count,
+                    reason=report.get("stopped_reason") or "protected pages returned",
+                )
+            )
+
+        refresh_count += 1
+        verification_api = _verification_api_from_report(report, args.api_csv)
+        print(
+            "Protected pages detected. Starting supervised recovery "
+            f"{refresh_count}/{args.max_session_refreshes}."
+        )
+        _close_active_browser_session(args.browser_session_json, api_key)
+        profile_name = _rotate_firecrawl_profile(
+            args.env_file,
+            profile_prefix=args.profile_prefix,
+            initial_profile_number=args.initial_profile_number,
+        )
+        try:
+            session = _create_browser_session_for_api(
+                api_key=api_key,
+                profile_name=profile_name,
+                api_number=verification_api,
+                session_json=args.browser_session_json,
+            )
+        except FirecrawlBrowserError as error:
+            raise SystemExit(_browser_session_error_message(error)) from error
+        args.no_browser_session = False
+        print("Open this Firecrawl live browser URL and complete Cloudflare if shown:")
+        print(session.get("interactiveLiveViewUrl") or session.get("liveViewUrl"))
+        _wait_for_profile_verification(
+            args,
+            api_key=api_key,
+            api_number=verification_api,
+        )
+        print("Verification passed. Resuming scrape from the checkpoint.")
+        first_run = False
+        show_progress = True
+
+    if not args.allow_incomplete:
+        raise SystemExit(
+            "Scrape incomplete and supervised recovery was not available. "
+            f"Report: {args.report_json}"
+        )
+
+
+def _scrape_config_from_args(
+    args: argparse.Namespace,
+    *,
+    resume: bool,
+    blocked_stop_threshold: int | None = None,
+) -> ScrapeConfig:
     request_delay = args.request_delay
     if request_delay is None:
         request_delay = _env_float(
@@ -150,7 +324,7 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
             DEFAULT_REQUEST_DELAY_SECONDS,
         )
 
-    config = ScrapeConfig(
+    return ScrapeConfig(
         api_csv=args.api_csv,
         output_csv=args.output_csv,
         report_json=args.report_json,
@@ -158,12 +332,16 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
         request_delay_seconds=request_delay,
         max_retries=args.max_retries,
         retry_backoff_seconds=args.retry_backoff,
-        blocked_stop_threshold=args.blocked_stop_threshold,
-        resume=not args.no_resume,
+        blocked_stop_threshold=(
+            blocked_stop_threshold
+            if blocked_stop_threshold is not None
+            else args.blocked_stop_threshold
+        ),
+        resume=resume,
     )
-    client = _well_details_client_for_command(args, api_key)
 
-    report = scrape_wells(config, client)
+
+def _print_scrape_summary(report: dict, args: argparse.Namespace) -> None:
     print(
         "Scraped {scraped_count}/{requested_count} wells into {output}. "
         "Report: {report}".format(
@@ -173,13 +351,40 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
             report=args.report_json,
         )
     )
-    if report.get("stopped_reason"):
-        print(report["stopped_reason"])
-    if not args.allow_incomplete and report["missing_count"] > 0:
-        raise SystemExit(
-            "Scrape incomplete. Run `make open-session`, verify the page, "
-            "then `make close-session` and retry `make ingest`."
+
+
+def _print_supervised_progress(report: dict) -> None:
+    print(
+        "Progress: {green}{scraped_count}/{requested_count} wells scraped{reset} "
+        "{red}{failed_count} failed{reset} "
+        "({missing_count} remaining).".format(
+            green=TERMINAL_GREEN,
+            red=TERMINAL_RED,
+            reset=TERMINAL_RESET,
+            scraped_count=report["scraped_count"],
+            requested_count=report["requested_count"],
+            failed_count=report.get("failed_count", 0),
+            missing_count=report["missing_count"],
         )
+    )
+
+
+def _browser_session_error_message(error: FirecrawlBrowserError) -> str:
+    detail = str(error)
+    if "429" in detail or "too many requests" in detail.lower():
+        return (
+            "Firecrawl rate limited browser session creation (HTTP 429 Too Many Requests). "
+            "Wait a few minutes, check your Firecrawl quota, then retry "
+            "`make ingest-supervised`. Your scrape checkpoint is preserved."
+        )
+    return (
+        "Could not create a Firecrawl browser session. "
+        f"{detail}. Your scrape checkpoint is preserved."
+    )
+
+
+def _report_stopped_for_protection(report: dict) -> bool:
+    return bool(report.get("stopped_reason")) and bool(report.get("blocked_count"))
 
 
 # ============================================================================
@@ -282,31 +487,14 @@ def open_session_command(args: argparse.Namespace) -> None:
 
     profile_name = _required_env("NM_OCD_FIRECRAWL_PROFILE")
     api_number = _resolve_api_for_session(args.api, args.api_csv)
-    url = build_well_details_url(api_number)
-    client = _firecrawl_browser_client(_required_env("FIRECRAWL_API_KEY"))
-
-    session = client.create_session(
+    session = _create_browser_session_for_api(
+        api_key=_required_env("FIRECRAWL_API_KEY"),
         profile_name=profile_name,
-        ttl_seconds=args.ttl
-        or _env_int("NM_OCD_BROWSER_TTL_SECONDS", DEFAULT_BROWSER_TTL_SECONDS),
-        activity_ttl_seconds=args.activity_ttl
-        or _env_int("NM_OCD_BROWSER_ACTIVITY_TTL_SECONDS", DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS),
+        api_number=api_number,
+        session_json=args.session_json,
+        ttl_seconds=args.ttl,
+        activity_ttl_seconds=args.activity_ttl,
     )
-    session["openedUrl"] = url
-    session["profile"] = profile_name
-    _write_json(args.session_json, session)
-
-    # Navigate the remote browser before handing the live URL to the user. If this
-    # fails, the session is still usable for manual challenge completion.
-    try:
-        client.execute_node(
-            session["id"],
-            "await page.goto(%r, { waitUntil: 'domcontentloaded' });\n"
-            "await page.waitForTimeout(1000);\n"
-            "console.log(await page.title());" % url,
-        )
-    except FirecrawlBrowserError as error:
-        print(f"Browser session was created, but automatic navigation failed: {error}")
 
     print(f"Opened Firecrawl browser session for profile {profile_name!r}.")
     print(f"Session saved to {args.session_json}")
@@ -345,6 +533,203 @@ def _active_browser_session_id(path: Path) -> str | None:
         return None
     session_id = session.get("id")
     return session_id if isinstance(session_id, str) and session_id else None
+
+
+def _create_browser_session_for_api(
+    *,
+    api_key: str,
+    profile_name: str,
+    api_number: str,
+    session_json: Path,
+    ttl_seconds: int | None = None,
+    activity_ttl_seconds: int | None = None,
+) -> dict:
+    """Create, save, and navigate a Firecrawl browser session for one API."""
+
+    url = build_well_details_url(api_number)
+    client = _firecrawl_browser_client(api_key)
+    session = client.create_session(
+        profile_name=profile_name,
+        ttl_seconds=ttl_seconds
+        or _env_int("NM_OCD_BROWSER_TTL_SECONDS", DEFAULT_BROWSER_TTL_SECONDS),
+        activity_ttl_seconds=activity_ttl_seconds
+        or _env_int("NM_OCD_BROWSER_ACTIVITY_TTL_SECONDS", DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS),
+    )
+    session["openedUrl"] = url
+    session["profile"] = profile_name
+    _write_json(session_json, session)
+
+    # Navigation is best-effort; the live session is still useful if a challenge
+    # must be completed by the user before page data is visible.
+    try:
+        _navigate_browser_session(client, session["id"], url)
+    except FirecrawlBrowserError as error:
+        print(f"Browser session was created, but automatic navigation failed: {error}")
+    return session
+
+
+def _navigate_browser_session(
+    client: FirecrawlBrowserClient,
+    session_id: str,
+    url: str,
+) -> None:
+    client.execute_node(session_id, _browser_navigation_script(url))
+
+
+def _browser_navigation_script(url: str) -> str:
+    return (
+        f"await page.goto({json.dumps(url)}, {{ waitUntil: 'domcontentloaded' }});\n"
+        "await page.waitForTimeout(1000);\n"
+        f"{SAFE_INFORMATION_MODAL_SCRIPT}\n"
+        "console.log(await page.title());"
+    )
+
+
+def _close_active_browser_session(session_json: Path, api_key: str) -> None:
+    if not session_json.exists():
+        return
+
+    try:
+        session = json.loads(session_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return
+
+    session_id = _active_browser_session_id(session_json)
+    if not session_id:
+        return
+
+    try:
+        _firecrawl_browser_client(api_key).close_session(session_id)
+        print(f"Closed stale Firecrawl browser session {session_id}.")
+    except FirecrawlBrowserError as error:
+        session["closeError"] = str(error)
+        print(f"Could not close stale Firecrawl browser session {session_id}: {error}")
+
+    session["closed"] = True
+    _write_json(session_json, session)
+
+
+def _rotate_firecrawl_profile(
+    env_file: Path,
+    *,
+    profile_prefix: str,
+    initial_profile_number: int,
+) -> str:
+    """Increment NM_OCD_FIRECRAWL_PROFILE in .env and in this process."""
+
+    content = env_file.read_text(encoding="utf-8") if env_file.exists() else ""
+    lines = content.splitlines(keepends=True)
+    assignment = _profile_assignment_pattern()
+    new_profile: str | None = None
+
+    for index, line in enumerate(lines):
+        line_body = line.rstrip("\r\n")
+        newline = line[len(line_body) :]
+        match = assignment.match(line_body)
+        if not match:
+            continue
+
+        current_profile = match.group("value").strip()
+        current_number = _profile_number(current_profile, profile_prefix)
+        if current_number is None:
+            raise SystemExit(
+                f"{PROFILE_ENV_KEY} must look like {profile_prefix}N, got {current_profile!r}"
+            )
+
+        new_profile = f"{profile_prefix}{current_number + 1}"
+        lines[index] = (
+            f"{match.group('prefix')}{match.group('quote')}{new_profile}"
+            f"{match.group('quote')}{match.group('suffix')}{newline}"
+        )
+        break
+
+    if new_profile is None:
+        new_profile = f"{profile_prefix}{initial_profile_number}"
+        content = "".join(lines)
+        if content and not content.endswith(("\n", "\r")):
+            content += "\n"
+        lines = [content, f"{PROFILE_ENV_KEY}={new_profile}\n"]
+
+    env_file.parent.mkdir(parents=True, exist_ok=True)
+    env_file.write_text("".join(lines), encoding="utf-8")
+    os.environ[PROFILE_ENV_KEY] = new_profile
+    print(f"Using Firecrawl profile {new_profile!r}.")
+    return new_profile
+
+
+def _profile_assignment_pattern() -> re.Pattern:
+    return re.compile(
+        rf"^(?P<prefix>\s*{re.escape(PROFILE_ENV_KEY)}\s*=\s*)"
+        r"(?P<quote>[\"']?)(?P<value>.*?)(?P=quote)(?P<suffix>\s*(?:#.*)?)$"
+    )
+
+
+def _profile_number(profile_name: str, profile_prefix: str) -> int | None:
+    match = re.fullmatch(rf"{re.escape(profile_prefix)}(?P<number>\d+)", profile_name)
+    return int(match.group("number")) if match else None
+
+
+def _verification_api_from_report(report: dict, api_csv: Path) -> str:
+    for key in ("blocked_apis", "missing_apis"):
+        api_numbers = report.get(key)
+        if api_numbers:
+            return sorted(str(api_number) for api_number in api_numbers)[0]
+    return _resolve_api_for_session(None, api_csv)
+
+
+def _wait_for_profile_verification(
+    args: argparse.Namespace,
+    *,
+    api_key: str,
+    api_number: str,
+) -> None:
+    deadline = time.monotonic() + max(0.0, args.verification_timeout)
+    last_error: BaseException | None = None
+
+    while True:
+        try:
+            if _session_is_verified(args, api_key=api_key, api_number=api_number):
+                return
+        except (
+            FirecrawlBrowserError,
+            FirecrawlScrapeError,
+            ProtectedPageError,
+            WellDetailsParseError,
+            ValueError,
+        ) as error:
+            last_error = error
+
+        now = time.monotonic()
+        if now >= deadline:
+            detail = f" Last verification error: {last_error}" if last_error else ""
+            raise SystemExit(
+                "Timed out waiting for manual Firecrawl/Cloudflare verification."
+                f"{detail}"
+            )
+
+        wait_seconds = min(args.verification_check_interval, deadline - now)
+        print(
+            "Waiting for manual verification in the Firecrawl live browser "
+            f"({wait_seconds:g}s)..."
+        )
+        time.sleep(max(0.0, wait_seconds))
+
+
+def _session_is_verified(args: argparse.Namespace, *, api_key: str, api_number: str) -> bool:
+    session_id = _active_browser_session_id(args.browser_session_json)
+    if session_id:
+        try:
+            _firecrawl_browser_client(api_key).execute_node(
+                session_id,
+                SAFE_INFORMATION_MODAL_SCRIPT,
+            )
+        except FirecrawlBrowserError:
+            pass
+
+    client = _well_details_client_for_command(args, api_key)
+    html = client.scrape_html(build_well_details_url(api_number))
+    parse_well_details_html(html, expected_api=api_number)
+    return True
 
 
 # ============================================================================

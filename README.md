@@ -47,6 +47,27 @@ Or run the whole ingestion:
 make ingest
 ```
 
+For a longer scrape that may hit the protected page after starting, use the supervised command:
+
+```bash
+make scraping-supervised
+make load-db
+```
+
+Or:
+
+```bash
+make ingest-supervised
+```
+
+If protected pages appear, `scrape-wells-supervised` closes the stale Firecrawl browser session,
+increments `NM_OCD_FIRECRAWL_PROFILE` in `.env` (for example,
+`nm-ocd-verified-6` to `nm-ocd-verified-7`), opens a fresh live browser session, and prints the
+interactive URL. Complete any Cloudflare/Turnstile prompt manually in that browser. The command
+keeps checking the session and resumes from `data/scrape_checkpoint.json` once real Well Details
+data is visible. Informational website modals such as Close/OK/I understand may be dismissed
+automatically; Cloudflare controls are not clicked automatically.
+
 The scraper uses Firecrawl's single-page scrape endpoint with a named browser profile, so a
 verified profile can preserve cookies/session state for the protected NM OCD pages. It writes:
 

@@ -63,6 +63,7 @@ def scrape_wells(
     client: WellDetailsClient,
     *,
     sleeper: Callable[[float], None] | None = None,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Scrape requested APIs, writing CSV, report JSON, and checkpoint JSON."""
 
@@ -108,7 +109,9 @@ def scrape_wells(
             checkpoint["failures"].pop(api_number, None)
             consecutive_blocked = 0
 
-        _persist_outputs(config, api_numbers, checkpoint, stopped_reason)
+        report = _persist_outputs(config, api_numbers, checkpoint, stopped_reason)
+        if progress_callback is not None:
+            progress_callback(report)
 
         if stopped_reason:
             break
