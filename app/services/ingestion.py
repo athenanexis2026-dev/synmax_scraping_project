@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from app.repositories.schema import ASSIGNMENT_COLUMNS
 from app.services.well_details.errors import (
+    FirecrawlBrowserError,
     FirecrawlScrapeError,
     ProtectedPageError,
     WellDetailsParseError,
@@ -93,7 +94,12 @@ def scrape_wells(
                     f"Stopped after {consecutive_blocked} consecutive protected pages. "
                     "Refresh the verified Firecrawl session/profile before resuming."
                 )
-        except (FirecrawlScrapeError, WellDetailsParseError, ValueError) as error:
+        except (
+            FirecrawlBrowserError,
+            FirecrawlScrapeError,
+            WellDetailsParseError,
+            ValueError,
+        ) as error:
             checkpoint["failures"][api_number] = {"url": url, "reason": str(error)}
             consecutive_blocked = 0
         else:
@@ -131,7 +137,12 @@ def _scrape_one_api(
             return normalized
         except ProtectedPageError:
             raise
-        except (FirecrawlScrapeError, WellDetailsParseError, ValueError) as error:
+        except (
+            FirecrawlBrowserError,
+            FirecrawlScrapeError,
+            WellDetailsParseError,
+            ValueError,
+        ) as error:
             last_error = error
             if attempt < config.max_retries:
                 sleeper(config.retry_backoff_seconds * attempt)

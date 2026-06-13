@@ -113,6 +113,9 @@ def is_protected_without_data(html_text: str) -> bool:
         or "cf-turnstile" in lowered
         or "cloudflareturnstile" in lowered
         or "just a moment" in lowered
+        or "verification failed" in lowered
+        or "could not verify your request through cloudflare turnstile" in lowered
+        or "official api instead of scraping this page" in lowered
     )
     return has_protection and not has_data
 

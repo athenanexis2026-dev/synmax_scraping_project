@@ -1,0 +1,23 @@
+{
+  "blocked_apis": [],
+  "blocked_count": 0,
+  "blocked_details": {},
+  "failed_count": 0,
+  "missing_apis": [],
+  "missing_count": 0,
+  "parse_failures": {},
+  "remaining_null_columns": {
+    "CRS": 1,
+    "DF Elevation": 478,
+    "Directional Status": 141,
+    "GL Elevation": 92,
+    "KB Elevation": 478,
+    "Mineral Owner": 19,
+    "Single/Multiple Completion": 109,
+    "TVD": 480
+  },
+  "requested_count": 480,
+  "scraped_count": 480,
+  "source": "WellDetails.aspx",
+  "stopped_reason": null
+}

@@ -195,6 +195,16 @@ def test_parse_well_details_html_rejects_protected_page_without_data() -> None:
         )
 
 
+def test_parse_well_details_html_rejects_failed_verification_page() -> None:
+    with pytest.raises(ProtectedPageError):
+        parse_well_details_html(
+            "<html><body><h1>Verification Failed</h1>"
+            "<p>We could not verify your request through Cloudflare Turnstile.</p>"
+            "<p>Please use our official API instead of scraping this page.</p>"
+            "</body></html>"
+        )
+
+
 def test_parse_well_details_browser_snapshot_rejects_protected_page() -> None:
     with pytest.raises(ProtectedPageError):
         well_details_snapshot_to_html(

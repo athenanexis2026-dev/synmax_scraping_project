@@ -2,6 +2,7 @@ import csv
 import json
 
 from app.services.ingestion import ScrapeConfig, scrape_wells
+from app.services.well_details.errors import FirecrawlBrowserError
 
 
 def _well_html(api: str) -> str:
@@ -42,6 +43,7 @@ def test_scrape_wells_writes_csv_report_and_checkpoint(tmp_path) -> None:
         report_json=tmp_path / "report.json",
         checkpoint_json=tmp_path / "checkpoint.json",
         request_delay_seconds=0,
+        max_retries=1,
         retry_backoff_seconds=0,
     )
     client = FakeClient([_well_html("30-045-35432"), _well_html("30-045-35433")])
@@ -93,3 +95,26 @@ def test_scrape_wells_stops_after_repeated_protected_pages(tmp_path) -> None:
     assert report["missing_count"] == 3
     assert report["stopped_reason"].startswith("Stopped after 2")
     assert len(client.urls) == 2
+
+
+def test_scrape_wells_records_browser_session_failures(tmp_path) -> None:
+    api_csv = tmp_path / "apis.csv"
+    api_csv.write_text("api\n30-045-35432\n", encoding="utf-8")
+    config = ScrapeConfig(
+        api_csv=api_csv,
+        output_csv=tmp_path / "wells.csv",
+        report_json=tmp_path / "report.json",
+        checkpoint_json=tmp_path / "checkpoint.json",
+        request_delay_seconds=0,
+        max_retries=1,
+        retry_backoff_seconds=0,
+    )
+    client = FakeClient([FirecrawlBrowserError("Browser session returned no page snapshot")])
+
+    report = scrape_wells(config, client, sleeper=lambda _: None)
+
+    assert report["scraped_count"] == 0
+    assert report["failed_count"] == 1
+    assert report["parse_failures"]["3004535432"]["reason"].startswith(
+        "Failed after 1 attempts"
+    )

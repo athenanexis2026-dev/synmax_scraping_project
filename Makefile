@@ -1,4 +1,4 @@
-.PHONY: start open-session close-session check-session scraping load-db ingest test lint
+.PHONY: start open-session close-session check-session scraping load-db ingest reset-ingest test lint
 
 start:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/uvicorn app.main:app --reload
@@ -19,6 +19,9 @@ load-db:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli load-db --replace
 
 ingest: scraping load-db
+
+reset-ingest:
+	rm -f data/firecrawl_browser_session.json data/api_well_data_scraped.csv data/scrape_report.json data/scrape_checkpoint.json api_well_data.db
 
 test:
 	.venv/bin/pytest
