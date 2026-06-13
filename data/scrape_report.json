@@ -4,8 +4,6 @@
   "blocked_details": {},
   "failed_count": 0,
   "missing_apis": [
-    "3001528905",
-    "3001528907",
     "3001528913",
     "3001528930",
     "3001528980",
@@ -194,20 +192,20 @@
     "3001531828",
     "3001531865"
   ],
-  "missing_count": 189,
+  "missing_count": 187,
   "parse_failures": {},
   "remaining_null_columns": {
     "CRS": 1,
-    "DF Elevation": 290,
+    "DF Elevation": 292,
     "Directional Status": 88,
     "GL Elevation": 91,
-    "KB Elevation": 290,
+    "KB Elevation": 292,
     "Mineral Owner": 19,
     "Single/Multiple Completion": 59,
-    "TVD": 291
+    "TVD": 293
   },
   "requested_count": 480,
-  "scraped_count": 291,
+  "scraped_count": 293,
   "source": "WellDetails.aspx",
   "stopped_reason": null
 }
