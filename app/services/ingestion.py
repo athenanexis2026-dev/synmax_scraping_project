@@ -39,6 +39,7 @@ class ScrapeConfig:
     max_retries: int = 3
     retry_backoff_seconds: float = 5.0
     blocked_stop_threshold: int = 3
+    failed_stop_threshold: int | None = None
     resume: bool = True
 
 
@@ -71,6 +72,7 @@ def scrape_wells(
     api_numbers = sorted(read_api_numbers(config.api_csv))
     checkpoint = _read_checkpoint(config.checkpoint_json) if config.resume else _empty_checkpoint()
     consecutive_blocked = 0
+    consecutive_failed = 0
     stopped_reason: str | None = None
 
     for index, api_number in enumerate(api_numbers):
@@ -90,6 +92,7 @@ def scrape_wells(
             checkpoint["blocked"][api_number] = {"url": url, "reason": str(error)}
             checkpoint["failures"].pop(api_number, None)
             consecutive_blocked += 1
+            consecutive_failed = 0
             if consecutive_blocked >= config.blocked_stop_threshold:
                 stopped_reason = (
                     f"Stopped after {consecutive_blocked} consecutive protected pages. "
@@ -103,11 +106,21 @@ def scrape_wells(
         ) as error:
             checkpoint["failures"][api_number] = {"url": url, "reason": str(error)}
             consecutive_blocked = 0
+            consecutive_failed += 1
+            if (
+                config.failed_stop_threshold is not None
+                and consecutive_failed >= config.failed_stop_threshold
+            ):
+                stopped_reason = (
+                    f"Stopped after {consecutive_failed} consecutive failed pages. "
+                    "Refresh the verified Firecrawl session/profile before resuming."
+                )
         else:
             checkpoint["completed"][api_number] = record
             checkpoint["blocked"].pop(api_number, None)
             checkpoint["failures"].pop(api_number, None)
             consecutive_blocked = 0
+            consecutive_failed = 0
 
         report = _persist_outputs(config, api_numbers, checkpoint, stopped_reason)
         if progress_callback is not None:

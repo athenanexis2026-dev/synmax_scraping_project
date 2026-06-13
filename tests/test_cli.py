@@ -301,6 +301,8 @@ def test_scrape_wells_supervised_rotates_profile_opens_session_and_resumes(
 
     assert [config.resume for config in captured["configs"]] == [True, True]
     assert [config.blocked_stop_threshold for config in captured["configs"]] == [1, 1]
+    assert [config.failed_stop_threshold for config in captured["configs"]] == [1, 1]
+    assert [config.max_retries for config in captured["configs"]] == [1, 1]
     assert ("close", "browser-old") in captured["events"]
     assert ("create", "nm-ocd-verified-7") in captured["events"]
     assert os.environ["NM_OCD_FIRECRAWL_PROFILE"] == "nm-ocd-verified-7"
@@ -311,6 +313,85 @@ def test_scrape_wells_supervised_rotates_profile_opens_session_and_resumes(
     output = capsys.readouterr().out
     assert "\033[32m1/1 wells scraped\033[0m" in output
     assert "\033[31m0 failed\033[0m" in output
+
+
+def test_scrape_wells_supervised_recovers_after_failed_page(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    env_file = tmp_path / ".env"
+    _write_env_file(
+        env_file,
+        FIRECRAWL_API_KEY="fc-test",
+        NM_OCD_FIRECRAWL_PROFILE="nm-ocd-verified-6",
+    )
+    api_csv = _write_api_csv(tmp_path)
+    session_json = tmp_path / "session.json"
+    session_json.write_text('{"id": "browser-old"}', encoding="utf-8")
+    reports = [
+        _failed_report(),
+        {
+            "scraped_count": 1,
+            "requested_count": 1,
+            "missing_count": 0,
+            "blocked_count": 0,
+            "failed_count": 0,
+            "stopped_reason": None,
+        },
+    ]
+    captured = {"events": []}
+
+    class FakeBrowserClient:
+        def __init__(self, **kwargs):
+            pass
+
+        def close_session(self, session_id):
+            captured["events"].append(("close", session_id))
+            return {"success": True}
+
+        def create_session(self, **kwargs):
+            captured["events"].append(("create", kwargs["profile_name"]))
+            return {
+                "success": True,
+                "id": "browser-new",
+                "interactiveLiveViewUrl": "https://liveview.test/new",
+            }
+
+        def execute_node(self, session_id, code):
+            captured["events"].append(("execute", session_id, code))
+            return {"success": True}
+
+    def fake_scrape_wells(config, client, *, progress_callback=None):
+        return reports.pop(0)
+
+    monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
+    monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
+    monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
+    monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
+    monkeypatch.setattr(cli_commands, "_session_is_verified", lambda *args, **kwargs: True)
+    _set_cli_args(
+        monkeypatch,
+        "scrape-wells-supervised",
+        "--env-file",
+        str(env_file),
+        "--api-csv",
+        str(api_csv),
+        "--output-csv",
+        str(tmp_path / "wells.csv"),
+        "--report-json",
+        str(tmp_path / "report.json"),
+        "--checkpoint-json",
+        str(tmp_path / "checkpoint.json"),
+        "--browser-session-json",
+        str(session_json),
+        "--max-session-refreshes",
+        "1",
+    )
+
+    cli.main()
+
+    assert ("close", "browser-old") in captured["events"]
+    assert ("create", "nm-ocd-verified-7") in captured["events"]
 
 
 def test_scrape_wells_supervised_exits_cleanly_when_firecrawl_rate_limits_session(
@@ -566,4 +647,22 @@ def _protected_report() -> dict:
         "blocked_count": 1,
         "blocked_apis": ["3004535432"],
         "stopped_reason": "Stopped after 1 consecutive protected pages.",
+    }
+
+
+def _failed_report() -> dict:
+    return {
+        "scraped_count": 0,
+        "requested_count": 1,
+        "missing_count": 1,
+        "missing_apis": ["3004535432"],
+        "blocked_count": 0,
+        "failed_count": 1,
+        "parse_failures": {
+            "3004535432": {
+                "url": "https://example.test/well",
+                "reason": "Browser session returned no page snapshot",
+            }
+        },
+        "stopped_reason": "Stopped after 1 consecutive failed pages.",
     }

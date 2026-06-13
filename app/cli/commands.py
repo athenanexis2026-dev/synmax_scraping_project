@@ -43,12 +43,14 @@ DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
 DEFAULT_BLOCKED_STOP_THRESHOLD = 3
 SUPERVISED_BLOCKED_STOP_THRESHOLD = 1
+SUPERVISED_FAILED_STOP_THRESHOLD = 1
+SUPERVISED_MAX_RETRIES = 1
 DEFAULT_BROWSER_TTL_SECONDS = 900
 DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS = 900
 DEFAULT_BROWSER_WAIT_MS = 5000
 DEFAULT_PROFILE_PREFIX = "nm-ocd-verified-"
 DEFAULT_INITIAL_PROFILE_NUMBER = 6
-DEFAULT_MAX_SESSION_REFRESHES = 3
+DEFAULT_MAX_SESSION_REFRESHES = 5
 DEFAULT_VERIFICATION_TIMEOUT_SECONDS = 600.0
 DEFAULT_VERIFICATION_CHECK_INTERVAL_SECONDS = 10.0
 PROFILE_ENV_KEY = "NM_OCD_FIRECRAWL_PROFILE"
@@ -250,6 +252,8 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
             args,
             resume=True if not first_run else not args.no_resume,
             blocked_stop_threshold=SUPERVISED_BLOCKED_STOP_THRESHOLD,
+            failed_stop_threshold=SUPERVISED_FAILED_STOP_THRESHOLD,
+            max_retries=SUPERVISED_MAX_RETRIES,
         )
         report = scrape_wells(
             config,
@@ -260,21 +264,21 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
 
         if report["missing_count"] == 0:
             return
-        if not _report_stopped_for_protection(report):
+        if not _report_stopped_for_recovery(report):
             break
         if refresh_count >= args.max_session_refreshes:
             raise SystemExit(
                 "Scrape incomplete after {count} supervised session refreshes. "
                 "Last stop: {reason}".format(
                     count=refresh_count,
-                    reason=report.get("stopped_reason") or "protected pages returned",
+                    reason=report.get("stopped_reason") or "protected/failed pages returned",
                 )
             )
 
         refresh_count += 1
         verification_api = _verification_api_from_report(report, args.api_csv)
         print(
-            "Protected pages detected. Starting supervised recovery "
+            "Protected or failed pages detected. Starting supervised recovery "
             f"{refresh_count}/{args.max_session_refreshes}."
         )
         _close_active_browser_session(args.browser_session_json, api_key)
@@ -316,6 +320,8 @@ def _scrape_config_from_args(
     *,
     resume: bool,
     blocked_stop_threshold: int | None = None,
+    failed_stop_threshold: int | None = None,
+    max_retries: int | None = None,
 ) -> ScrapeConfig:
     request_delay = args.request_delay
     if request_delay is None:
@@ -330,13 +336,14 @@ def _scrape_config_from_args(
         report_json=args.report_json,
         checkpoint_json=args.checkpoint_json,
         request_delay_seconds=request_delay,
-        max_retries=args.max_retries,
+        max_retries=max_retries if max_retries is not None else args.max_retries,
         retry_backoff_seconds=args.retry_backoff,
         blocked_stop_threshold=(
             blocked_stop_threshold
             if blocked_stop_threshold is not None
             else args.blocked_stop_threshold
         ),
+        failed_stop_threshold=failed_stop_threshold,
         resume=resume,
     )
 
@@ -383,8 +390,10 @@ def _browser_session_error_message(error: FirecrawlBrowserError) -> str:
     )
 
 
-def _report_stopped_for_protection(report: dict) -> bool:
-    return bool(report.get("stopped_reason")) and bool(report.get("blocked_count"))
+def _report_stopped_for_recovery(report: dict) -> bool:
+    return bool(report.get("stopped_reason")) and (
+        bool(report.get("blocked_count")) or bool(report.get("failed_count"))
+    )
 
 
 # ============================================================================
@@ -670,10 +679,16 @@ def _profile_number(profile_name: str, profile_prefix: str) -> int | None:
 
 
 def _verification_api_from_report(report: dict, api_csv: Path) -> str:
-    for key in ("blocked_apis", "missing_apis"):
+    for key in ("blocked_apis",):
         api_numbers = report.get(key)
         if api_numbers:
             return sorted(str(api_number) for api_number in api_numbers)[0]
+    parse_failures = report.get("parse_failures")
+    if isinstance(parse_failures, dict) and parse_failures:
+        return sorted(str(api_number) for api_number in parse_failures)[0]
+    api_numbers = report.get("missing_apis")
+    if api_numbers:
+        return sorted(str(api_number) for api_number in api_numbers)[0]
     return _resolve_api_for_session(None, api_csv)
 
 
