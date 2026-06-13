@@ -37,15 +37,21 @@ def parse_polygon_points(points: str) -> ParsedPolygon:
     coordinates = tuple(_parse_coordinate_pair(pair) for pair in raw_pairs)
     distinct_coordinates = set(coordinates)
     if len(distinct_coordinates) < 3:
-        raise PolygonValidationError("polygon requires at least three distinct coordinate pairs")
+        raise PolygonValidationError(
+            "polygon requires at least three distinct coordinate pairs"
+        )
 
     closed_coordinates = coordinates
     if coordinates[0] != coordinates[-1]:
         closed_coordinates = (*coordinates, coordinates[0])
 
-    polygon = Polygon((longitude, latitude) for latitude, longitude in closed_coordinates)
+    polygon = Polygon(
+        (longitude, latitude) for latitude, longitude in closed_coordinates
+    )
     if polygon.is_empty or not polygon.is_valid or polygon.area == 0:
-        raise PolygonValidationError("points must form a valid non-self-intersecting polygon")
+        raise PolygonValidationError(
+            "points must form a valid non-self-intersecting polygon"
+        )
 
     min_longitude, min_latitude, max_longitude, max_latitude = polygon.bounds
     return ParsedPolygon(
@@ -79,7 +85,9 @@ def _parse_coordinate_pair(raw_pair: str) -> tuple[float, float]:
         latitude = float(pieces[0])
         longitude = float(pieces[1])
     except ValueError as error:
-        raise PolygonValidationError("latitude and longitude must be numeric") from error
+        raise PolygonValidationError(
+            "latitude and longitude must be numeric"
+        ) from error
 
     if not math.isfinite(latitude) or not math.isfinite(longitude):
         raise PolygonValidationError("latitude and longitude must be finite")
@@ -89,4 +97,3 @@ def _parse_coordinate_pair(raw_pair: str) -> tuple[float, float]:
         raise PolygonValidationError("longitude must be between -180 and 180")
 
     return latitude, longitude
-

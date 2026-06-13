@@ -7,7 +7,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from app.repositories.schema import ASSIGNMENT_COLUMNS, CREATE_TABLE_SQL, GEO_COORDINATE_COLUMNS
+from app.repositories.schema import (
+    ASSIGNMENT_COLUMNS,
+    CREATE_TABLE_SQL,
+    GEO_COORDINATE_COLUMNS,
+)
 
 SNAKE_CASE_COLUMN_ALIASES = {
     "Operator": "operator",
@@ -63,20 +67,26 @@ def recreate_database(connection: sqlite3.Connection) -> None:
 # ============================================================================
 # WRITE OPERATIONS
 # ============================================================================
-def upsert_wells(connection: sqlite3.Connection, records: Iterable[Mapping[str, Any]]) -> int:
+def upsert_wells(
+    connection: sqlite3.Connection, records: Iterable[Mapping[str, Any]]
+) -> int:
     """Insert or replace normalized well records by API number."""
 
     placeholders = ", ".join("?" for _ in ASSIGNMENT_COLUMNS)
     quoted_columns = ", ".join(f'"{column}"' for column in ASSIGNMENT_COLUMNS)
     update_columns = [column for column in ASSIGNMENT_COLUMNS if column != "API"]
-    updates = ", ".join(f'"{column}" = excluded."{column}"' for column in update_columns)
+    updates = ", ".join(
+        f'"{column}" = excluded."{column}"' for column in update_columns
+    )
     sql = f"""
         INSERT INTO api_well_data ({quoted_columns})
         VALUES ({placeholders})
         ON CONFLICT("API") DO UPDATE SET {updates}
     """
 
-    rows = [tuple(record.get(column) for column in ASSIGNMENT_COLUMNS) for record in records]
+    rows = [
+        tuple(record.get(column) for column in ASSIGNMENT_COLUMNS) for record in records
+    ]
     if not rows:
         return 0
 

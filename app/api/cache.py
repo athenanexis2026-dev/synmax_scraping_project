@@ -32,7 +32,9 @@ def json_cache_response(content: Any, request: Request) -> Response:
 def build_etag(content: Any) -> str:
     """Build a stable ETag hash from response content."""
 
-    payload = json.dumps(content, sort_keys=True, separators=(",", ":"), default=str).encode()
+    payload = json.dumps(
+        content, sort_keys=True, separators=(",", ":"), default=str
+    ).encode()
     digest = hashlib.sha256(payload).hexdigest()
     return f'"{digest}"'
 

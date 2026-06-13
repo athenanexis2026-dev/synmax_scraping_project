@@ -194,8 +194,9 @@ def test_rotate_firecrawl_profile_increments_env_file_and_process_env(
     )
 
     assert profile == "nm-ocd-verified-8"
-    assert "NM_OCD_FIRECRAWL_PROFILE=nm-ocd-verified-8 # keep this" in env_file.read_text(
-        encoding="utf-8"
+    assert (
+        "NM_OCD_FIRECRAWL_PROFILE=nm-ocd-verified-8 # keep this"
+        in env_file.read_text(encoding="utf-8")
     )
 
 
@@ -277,7 +278,9 @@ def test_scrape_wells_supervised_rotates_profile_opens_session_and_resumes(
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
-    monkeypatch.setattr(cli_commands, "_session_is_verified", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        cli_commands, "_session_is_verified", lambda *args, **kwargs: True
+    )
     _set_cli_args(
         monkeypatch,
         "scrape-wells-supervised",
@@ -368,7 +371,9 @@ def test_scrape_wells_supervised_recovers_after_failed_page(
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
-    monkeypatch.setattr(cli_commands, "_session_is_verified", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        cli_commands, "_session_is_verified", lambda *args, **kwargs: True
+    )
     _set_cli_args(
         monkeypatch,
         "scrape-wells-supervised",
@@ -417,7 +422,9 @@ def test_scrape_wells_supervised_exits_cleanly_when_firecrawl_rate_limits_sessio
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
-    monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", RateLimitedBrowserClient)
+    monkeypatch.setattr(
+        cli_commands, "FirecrawlBrowserClient", RateLimitedBrowserClient
+    )
     monkeypatch.setattr(
         cli_commands,
         "scrape_wells",
@@ -479,7 +486,9 @@ def test_scrape_wells_supervised_times_out_waiting_for_verification(
         "scrape_wells",
         lambda config, client, **kwargs: _protected_report(),
     )
-    monkeypatch.setattr(cli_commands, "_session_is_verified", lambda *args, **kwargs: False)
+    monkeypatch.setattr(
+        cli_commands, "_session_is_verified", lambda *args, **kwargs: False
+    )
     _set_cli_args(
         monkeypatch,
         "scrape-wells-supervised",
@@ -538,7 +547,9 @@ def test_scrape_wells_supervised_stops_after_max_session_refreshes(
     monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
-    monkeypatch.setattr(cli_commands, "_session_is_verified", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        cli_commands, "_session_is_verified", lambda *args, **kwargs: True
+    )
     _set_cli_args(
         monkeypatch,
         "scrape-wells-supervised",
@@ -562,12 +573,16 @@ def test_scrape_wells_supervised_stops_after_max_session_refreshes(
         cli.main()
 
 
-def test_load_db_command_replaces_schema_and_loads_scraped_rows(tmp_path, monkeypatch) -> None:
+def test_load_db_command_replaces_schema_and_loads_scraped_rows(
+    tmp_path, monkeypatch
+) -> None:
     api_csv = _write_api_csv(tmp_path)
     source_csv = tmp_path / "wells.csv"
     database = tmp_path / "api_well_data.db"
     with source_csv.open("w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.DictWriter(csv_file, fieldnames=["API", "Operator", "Latitude", "Longitude"])
+        writer = csv.DictWriter(
+            csv_file, fieldnames=["API", "Operator", "Latitude", "Longitude"]
+        )
         writer.writeheader()
         writer.writerow(
             {

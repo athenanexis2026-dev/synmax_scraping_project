@@ -99,7 +99,7 @@ WELL_DETAILS_HTML = """
 </div>
 """
 
-WELL_DETAILS_SNAPSHOT = '''
+WELL_DETAILS_SNAPSHOT = """
   - main
     - heading "30-005-00586 SOUTH CAPROCK QUEEN UNIT #001 [11446]" [level=1]
     - heading "General Well Information" [level=2]
@@ -139,7 +139,7 @@ WELL_DETAILS_SNAPSHOT = '''
     - StaticText "01/01/1900"
     - StaticText "Last Inspection:"
     - heading "History" [level=3]
-'''
+"""
 
 
 def test_parse_well_details_html_extracts_assignment_fields() -> None:

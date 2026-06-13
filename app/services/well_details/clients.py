@@ -79,7 +79,9 @@ class FirecrawlWellDetailsClient:
             raw_response = self._open(request)
             response = json.loads(raw_response.decode("utf-8"))
         except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise FirecrawlScrapeError(f"Firecrawl scrape failed for {url}: {error}") from error
+            raise FirecrawlScrapeError(
+                f"Firecrawl scrape failed for {url}: {error}"
+            ) from error
 
         if not response.get("success"):
             error = response.get("error") or response.get("message") or response
@@ -173,7 +175,9 @@ class FirecrawlBrowserClient:
             raw_response = self._open(request)
             response = json.loads(raw_response.decode("utf-8"))
         except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise FirecrawlBrowserError(f"Firecrawl browser operation failed: {error}") from error
+            raise FirecrawlBrowserError(
+                f"Firecrawl browser operation failed: {error}"
+            ) from error
 
         if not response.get("success"):
             error = response.get("error") or response.get("message") or response

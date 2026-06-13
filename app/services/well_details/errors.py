@@ -24,4 +24,3 @@ class ProtectedPageError(WellDetailsError):
 
 class WellDetailsParseError(WellDetailsError):
     """Raised when a Well Details page cannot be parsed into well fields."""
-

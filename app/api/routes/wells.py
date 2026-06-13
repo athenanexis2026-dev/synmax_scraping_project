@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path as ApiPath, Query as ApiQuery, Request
+from fastapi import (
+    APIRouter,
+    HTTPException,
+    Path as ApiPath,
+    Query as ApiQuery,
+    Request,
+)
 from fastapi.responses import Response
 
 from app.api.docs import (

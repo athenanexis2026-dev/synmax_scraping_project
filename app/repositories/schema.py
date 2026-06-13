@@ -64,4 +64,3 @@ GEO_COORDINATE_COLUMNS = """
 CREATE INDEX IF NOT EXISTS idx_api_well_data_lat_lon
     ON api_well_data ("Latitude", "Longitude");
 """
-

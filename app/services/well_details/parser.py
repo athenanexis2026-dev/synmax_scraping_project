@@ -44,11 +44,15 @@ SNAPSHOT_SECTION_HEADINGS = {
 # ============================================================================
 # WELL DETAILS PARSING
 # ============================================================================
-def parse_well_details_html(html_text: str, *, expected_api: str | None = None) -> dict[str, Any]:
+def parse_well_details_html(
+    html_text: str, *, expected_api: str | None = None
+) -> dict[str, Any]:
     """Parse the assignment fields from a Well Details page."""
 
     if is_protected_without_data(html_text):
-        raise ProtectedPageError("Well Details page returned protection content without data")
+        raise ProtectedPageError(
+            "Well Details page returned protection content without data"
+        )
 
     label_values = _LabelValueParser.parse(html_text)
     if "Operator" not in label_values and "Status" not in label_values:
@@ -83,11 +87,15 @@ def well_details_snapshot_to_html(snapshot: str) -> str:
     """Convert an agent-browser accessibility snapshot into parser-friendly HTML."""
 
     if _snapshot_is_protected(snapshot):
-        raise ProtectedPageError("Well Details page returned protection content without data")
+        raise ProtectedPageError(
+            "Well Details page returned protection content without data"
+        )
 
     label_values = _snapshot_label_values(snapshot)
     if "Operator" not in label_values and "Status" not in label_values:
-        raise WellDetailsParseError("Well Details labels were not found in browser snapshot")
+        raise WellDetailsParseError(
+            "Well Details labels were not found in browser snapshot"
+        )
 
     api = _extract_api(snapshot)
     pieces = ["<div id='datapane'>"]
@@ -218,7 +226,11 @@ def _parse_lat_long(value: str) -> tuple[str | None, str | None, str | None]:
     )
     if not match:
         return None, None, None
-    return match.group("latitude"), match.group("longitude"), _clean_text(match.group("crs"))
+    return (
+        match.group("latitude"),
+        match.group("longitude"),
+        _clean_text(match.group("crs")),
+    )
 
 
 def _extract_api(html_text: str) -> str | None:

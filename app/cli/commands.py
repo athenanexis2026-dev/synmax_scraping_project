@@ -9,7 +9,12 @@ import re
 import time
 from pathlib import Path
 
-from app.repositories.wells import connect, initialize_database, recreate_database, upsert_wells
+from app.repositories.wells import (
+    connect,
+    initialize_database,
+    recreate_database,
+    upsert_wells,
+)
 from app.services.ingestion import ScrapeConfig, scrape_wells
 from app.services.well_details.clients import (
     FIRECRAWL_API_BASE_URL,
@@ -271,7 +276,8 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
                 "Scrape incomplete after {count} supervised session refreshes. "
                 "Last stop: {reason}".format(
                     count=refresh_count,
-                    reason=report.get("stopped_reason") or "protected/failed pages returned",
+                    reason=report.get("stopped_reason")
+                    or "protected/failed pages returned",
                 )
             )
 
@@ -431,7 +437,9 @@ def _add_browser_session_commands(subparsers, common: argparse.ArgumentParser) -
         type=Path,
         help="Where to save the created browser session metadata",
     )
-    open_session.add_argument("--ttl", default=None, type=int, help="Browser TTL in seconds")
+    open_session.add_argument(
+        "--ttl", default=None, type=int, help="Browser TTL in seconds"
+    )
     open_session.add_argument(
         "--activity-ttl",
         default=None,
@@ -509,7 +517,9 @@ def open_session_command(args: argparse.Namespace) -> None:
     print(f"Session saved to {args.session_json}")
     print("Open this interactive URL, complete the official site challenge if shown:")
     print(session.get("interactiveLiveViewUrl") or session.get("liveViewUrl"))
-    print("After real well data is visible, keep this session open and run: make check-session")
+    print(
+        "After real well data is visible, keep this session open and run: make check-session"
+    )
     print("After make ingest finishes, run: make close-session")
 
 
@@ -528,7 +538,9 @@ def close_session_command(args: argparse.Namespace) -> None:
     client.close_session(session_id)
     session["closed"] = True
     _write_json(args.session_json, session)
-    print(f"Closed Firecrawl browser session {session_id}. Profile changes should be saved.")
+    print(
+        f"Closed Firecrawl browser session {session_id}. Profile changes should be saved."
+    )
 
 
 def _active_browser_session_id(path: Path) -> str | None:
@@ -562,7 +574,9 @@ def _create_browser_session_for_api(
         ttl_seconds=ttl_seconds
         or _env_int("NM_OCD_BROWSER_TTL_SECONDS", DEFAULT_BROWSER_TTL_SECONDS),
         activity_ttl_seconds=activity_ttl_seconds
-        or _env_int("NM_OCD_BROWSER_ACTIVITY_TTL_SECONDS", DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS),
+        or _env_int(
+            "NM_OCD_BROWSER_ACTIVITY_TTL_SECONDS", DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS
+        ),
     )
     session["openedUrl"] = url
     session["profile"] = profile_name
@@ -730,7 +744,9 @@ def _wait_for_profile_verification(
         time.sleep(max(0.0, wait_seconds))
 
 
-def _session_is_verified(args: argparse.Namespace, *, api_key: str, api_number: str) -> bool:
+def _session_is_verified(
+    args: argparse.Namespace, *, api_key: str, api_number: str
+) -> bool:
     session_id = _active_browser_session_id(args.browser_session_json)
     if session_id:
         try:
@@ -861,7 +877,9 @@ def _env_int(name: str, default: int) -> int:
 def _required_env(name: str) -> str:
     value = os.environ.get(name)
     if not value:
-        raise SystemExit(f"{name} is required. Add it once to .env, or pass --env-file.")
+        raise SystemExit(
+            f"{name} is required. Add it once to .env, or pass --env-file."
+        )
     return value
 
 

@@ -59,7 +59,11 @@ def read_api_numbers(csv_path: Path | str) -> set[str]:
             has_header = csv.Sniffer().has_header(sample)
         except csv.Error:
             first_line = sample.splitlines()[0] if sample.splitlines() else ""
-            has_header = first_line.strip().lower() in {"api", "api number", "apinumber"}
+            has_header = first_line.strip().lower() in {
+                "api",
+                "api number",
+                "apinumber",
+            }
         if has_header:
             reader = csv.DictReader(csv_file)
             api_column = _find_api_column(reader.fieldnames or [])
@@ -113,7 +117,9 @@ def normalize_record(source_record: Mapping[str, Any]) -> dict[str, Any]:
 
     for source_field, target_field in FIELD_MAPPING.items():
         if record[target_field] is None:
-            record[target_field] = _coerce_value(target_field, source_record.get(source_field))
+            record[target_field] = _coerce_value(
+                target_field, source_record.get(source_field)
+            )
 
     if record["Surface Location"] is None:
         record["Surface Location"] = build_surface_location(source_record)

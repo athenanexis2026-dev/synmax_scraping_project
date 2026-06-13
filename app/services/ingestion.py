@@ -46,7 +46,9 @@ class ScrapeConfig:
 # ============================================================================
 # SCRAPER TIMING HELPERS
 # ============================================================================
-def sleep_with_heartbeat(seconds: float, sleeper: Callable[[float], None] = time.sleep) -> None:
+def sleep_with_heartbeat(
+    seconds: float, sleeper: Callable[[float], None] = time.sleep
+) -> None:
     """Sleep in short beats so scraper pacing is visible and interruptible."""
 
     remaining = max(0.0, seconds)
@@ -70,7 +72,11 @@ def scrape_wells(
 
     sleeper = sleeper or sleep_with_heartbeat
     api_numbers = sorted(read_api_numbers(config.api_csv))
-    checkpoint = _read_checkpoint(config.checkpoint_json) if config.resume else _empty_checkpoint()
+    checkpoint = (
+        _read_checkpoint(config.checkpoint_json)
+        if config.resume
+        else _empty_checkpoint()
+    )
     consecutive_blocked = 0
     consecutive_failed = 0
     stopped_reason: str | None = None
@@ -163,7 +169,9 @@ def _scrape_one_api(
             if attempt < config.max_retries:
                 sleeper(config.retry_backoff_seconds * attempt)
 
-    raise FirecrawlScrapeError(f"Failed after {config.max_retries} attempts: {last_error}")
+    raise FirecrawlScrapeError(
+        f"Failed after {config.max_retries} attempts: {last_error}"
+    )
 
 
 # ============================================================================
@@ -201,9 +209,7 @@ def _build_report(
         for column in ASSIGNMENT_COLUMNS
         if (
             count := sum(
-                1
-                for row in rows
-                if row.get(column) is None or row.get(column) == ""
+                1 for row in rows if row.get(column) is None or row.get(column) == ""
             )
         )
     }
@@ -256,6 +262,5 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         writer = csv.DictWriter(csv_file, fieldnames=ASSIGNMENT_COLUMNS)
         writer.writeheader()
         writer.writerows(
-            {column: row.get(column) for column in ASSIGNMENT_COLUMNS}
-            for row in rows
+            {column: row.get(column) for column in ASSIGNMENT_COLUMNS} for row in rows
         )

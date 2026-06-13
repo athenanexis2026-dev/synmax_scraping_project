@@ -29,7 +29,9 @@ def test_health_returns_503_for_missing_database(tmp_path, monkeypatch) -> None:
     assert response.status_code == 503
 
 
-def test_get_well_returns_exact_columns_and_cache_headers(tmp_path, monkeypatch) -> None:
+def test_get_well_returns_exact_columns_and_cache_headers(
+    tmp_path, monkeypatch
+) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/30-015-25325")
@@ -49,7 +51,9 @@ def test_get_well_returns_exact_columns_and_cache_headers(tmp_path, monkeypatch)
     assert cached_response.status_code == 304
 
 
-def test_get_well_openapi_contract_documents_api_number_formats(tmp_path, monkeypatch) -> None:
+def test_get_well_openapi_contract_documents_api_number_formats(
+    tmp_path, monkeypatch
+) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/openapi.json")
@@ -71,8 +75,12 @@ def test_get_well_requires_hyphenated_api_number(tmp_path, monkeypatch) -> None:
     assert response.status_code == 422
 
 
-def test_get_well_accepts_four_segment_hyphenated_api_number(tmp_path, monkeypatch) -> None:
-    client = _client_for_database(_build_database_with_snake_case_columns(tmp_path), monkeypatch)
+def test_get_well_accepts_four_segment_hyphenated_api_number(
+    tmp_path, monkeypatch
+) -> None:
+    client = _client_for_database(
+        _build_database_with_snake_case_columns(tmp_path), monkeypatch
+    )
 
     response = client.get("/well/30-015-45678-0000")
 
@@ -89,7 +97,9 @@ def test_get_well_returns_404_for_missing_well(tmp_path, monkeypatch) -> None:
     assert response.status_code == 404
 
 
-def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path, monkeypatch) -> None:
+def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(
+    tmp_path, monkeypatch
+) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/wells/polygon?points=32,-105;33,-105;33,-104;32,-104")
@@ -107,7 +117,9 @@ def test_wells_polygon_returns_sorted_api_numbers_and_cache_headers(tmp_path, mo
     assert cached_response.status_code == 304
 
 
-def test_wells_polygon_openapi_contract_documents_points_format(tmp_path, monkeypatch) -> None:
+def test_wells_polygon_openapi_contract_documents_points_format(
+    tmp_path, monkeypatch
+) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/openapi.json")

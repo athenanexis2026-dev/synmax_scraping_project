@@ -73,7 +73,9 @@ def test_scrape_wells_writes_csv_report_and_checkpoint(tmp_path) -> None:
 
 def test_scrape_wells_stops_after_repeated_protected_pages(tmp_path) -> None:
     api_csv = tmp_path / "apis.csv"
-    api_csv.write_text("api\n30-045-35432\n30-045-35433\n30-045-35434\n", encoding="utf-8")
+    api_csv.write_text(
+        "api\n30-045-35432\n30-045-35433\n30-045-35434\n", encoding="utf-8"
+    )
     config = ScrapeConfig(
         api_csv=api_csv,
         output_csv=tmp_path / "wells.csv",
@@ -109,7 +111,9 @@ def test_scrape_wells_records_browser_session_failures(tmp_path) -> None:
         max_retries=1,
         retry_backoff_seconds=0,
     )
-    client = FakeClient([FirecrawlBrowserError("Browser session returned no page snapshot")])
+    client = FakeClient(
+        [FirecrawlBrowserError("Browser session returned no page snapshot")]
+    )
 
     report = scrape_wells(config, client, sleeper=lambda _: None)
 
@@ -145,5 +149,7 @@ def test_scrape_wells_can_stop_after_first_failed_page(tmp_path) -> None:
     assert report["scraped_count"] == 0
     assert report["failed_count"] == 1
     assert report["missing_count"] == 2
-    assert report["stopped_reason"].startswith("Stopped after 1 consecutive failed pages")
+    assert report["stopped_reason"].startswith(
+        "Stopped after 1 consecutive failed pages"
+    )
     assert len(client.urls) == 1
