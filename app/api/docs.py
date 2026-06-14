@@ -11,7 +11,7 @@ APP_METADATA = {
     "summary": "Read-only API for New Mexico well records loaded into SQLite.",
     "description": (
         "Serves the `api_well_data` SQLite table through read-only endpoints. "
-        "The API accepts hyphenated API numbers publicly and normalizes them "
+        "The API accepts hyphenated or digit-only API numbers publicly and normalizes them "
         "to digit-only keys for database lookup."
     ),
     "openapi_tags": [
@@ -25,10 +25,15 @@ APP_METADATA = {
 # WELL ROUTE DOCUMENTATION
 # ============================================================================
 API_NUMBER_DESCRIPTION = (
-    "Hyphenated New Mexico API number. Use `30-015-25325` for 10-digit APIs or "
-    "`30-015-45678-0000` for 14-digit APIs."
+    "New Mexico API number. Use `30-015-25325` or `3001525325` for 10-digit "
+    "APIs, and `30-015-45678-0000` or `30015456780000` for 14-digit APIs."
 )
-API_NUMBER_EXAMPLES = ["30-015-25325", "30-015-45678-0000"]
+API_NUMBER_EXAMPLES = [
+    "30-015-25325",
+    "3001525325",
+    "30-015-45678-0000",
+    "30015456780000",
+]
 WELL_RESPONSE_EXAMPLE = {
     "Operator": "Permian Star Energy",
     "Status": "Active",
@@ -59,7 +64,7 @@ WELL_ROUTE_RESPONSES = {
     },
     304: {"description": "The cached client copy is still current."},
     404: {"description": "The API number is well-formed but no row exists."},
-    422: {"description": "The API number is not hyphenated correctly."},
+    422: {"description": "The API number format is invalid."},
     503: {"description": "The configured SQLite database is unavailable."},
 }
 

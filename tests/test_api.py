@@ -9,6 +9,7 @@ os.environ.setdefault("SYNMAX_DATABASE_PATH", "api_well_data.db")
 from app.main import create_app
 from app.repositories.schema import ASSIGNMENT_COLUMNS
 from app.repositories.wells import connect, initialize_database, upsert_wells
+from app.schemas.wells import API_NUMBER_ERROR
 from app.utils.normalize import normalize_record
 
 
@@ -63,16 +64,31 @@ def test_get_well_openapi_contract_documents_api_number_formats(
     parameter = well_operation["parameters"][0]
     assert well_operation["summary"] == "Get one well by API number"
     assert parameter["name"] == "api_number"
-    assert parameter["schema"]["pattern"] == r"^\d{2}-\d{3}-\d{5}(?:-\d{4})?$"
+    assert (
+        parameter["schema"]["pattern"]
+        == r"^(?:\d{10}(?:\d{4})?|\d{2}-\d{3}-\d{5}(?:-\d{4})?)$"
+    )
+    assert "3001525325" in parameter["schema"]["examples"]
     assert "30-015-45678-0000" in parameter["schema"]["examples"]
 
 
-def test_get_well_requires_hyphenated_api_number(tmp_path, monkeypatch) -> None:
+def test_get_well_accepts_digit_only_api_number(tmp_path, monkeypatch) -> None:
     client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/3001525325")
 
+    assert response.status_code == 200
+    assert response.json()["API"] == "3001525325"
+    assert response.json()["Operator"] == "Inside Operator"
+
+
+def test_get_well_rejects_malformed_api_number(tmp_path, monkeypatch) -> None:
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
+
+    response = client.get("/well/30015")
+
     assert response.status_code == 422
+    assert response.json() == {"detail": API_NUMBER_ERROR}
 
 
 def test_get_well_accepts_four_segment_hyphenated_api_number(

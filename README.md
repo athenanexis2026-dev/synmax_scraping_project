@@ -420,15 +420,23 @@ Scraping can fail or stop for several reasons:
 - Requests are paced too aggressively and trigger protection; increase
   `NM_OCD_REQUEST_DELAY_SECONDS`.
 - Firecrawl rate limits the account or returns quota errors, commonly HTTP 429.
-- Firecrawl returns no HTML or reports a page-level metadata error.
-- The official page markup changes and expected labels/classes are no longer
-  present.
-- A requested API is invalid, missing, or no longer has a standard detail page.
 - The browser snapshot is incomplete or does not include "General Well
   Information".
-- The scrape is interrupted; rerun with the checkpoint to resume.
 - The database is locked during load because the API, a DB viewer, or another
   process has the SQLite file open for writing.
+
+### Possible Security Triggers
+
+These are likely reasons the official site may decide a scrape looks
+untrusted, even when the scraper is adding delays between requests:
+
+- Browser/profile trust, not only timing. Firecrawl `/scrape` may not carry the
+  same verified browser state as the live browser session, or the saved
+  `NM_OCD_FIRECRAWL_PROFILE` cookies/session may have expired.
+- IP or proxy reputation. `proxy: auto` can rotate through datacenter or proxy
+  IPs that the site distrusts, independent of request spacing.
+- Sequential API-number pattern. Scraping many `WellDetails.aspx` URLs in order
+  can look automated even with longer waits.
 
 Recommended recovery path:
 
@@ -592,9 +600,9 @@ Why the indexes matter:
 
 - `"API" TEXT PRIMARY KEY` creates SQLite's primary-key index. In this database,
   SQLite exposes that index as `sqlite_autoindex_api_well_data_1`. The
-  `/well/{api_number}` route normalizes the public hyphenated API number and
-  queries `api_well_data` by `"API"`, so the primary-key index supports single
-  well lookups. The loader also relies on the same constraint for
+  `/well/{api_number}` route normalizes the public API number and queries
+  `api_well_data` by `"API"`, so the primary-key index supports single well
+  lookups. The loader also relies on the same constraint for
   `ON CONFLICT("API") DO UPDATE` upserts.
 - `idx_api_well_data_lat_lon` supports the polygon endpoint. The API first uses
   a latitude/longitude bounding-box query to reduce candidate rows, then Shapely
@@ -614,21 +622,24 @@ curl http://127.0.0.1:8000/health
 
 ### `GET /well/{api_number}`
 
-Returns one well by hyphenated API number.
+Returns one well by API number.
 
 ```bash
 curl http://127.0.0.1:8000/well/30-015-25325
 ```
 
-Public API numbers must be hyphenated:
+Public API numbers can be hyphenated or digit-only:
 
 - valid: `30-015-25325`
+- valid: `3001525325`
 - valid: `30-015-45678-0000`
-- invalid: `3001525325`
+- valid: `30015456780000`
+- invalid: `30015`
 
 Invalid API number formats return `422`.
 
-The route normalizes `30-015-25325` to `3001525325` before querying SQLite.
+The route normalizes hyphenated values like `30-015-25325` to `3001525325`
+before querying SQLite.
 
 ### `GET /wells/polygon`
 
