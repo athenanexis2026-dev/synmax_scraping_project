@@ -1,149 +1,677 @@
-# SynMax Python Take-Home
+# SynMax Well Data API
 
-This repository is for the SynMax Python developer take-home project.
+This project ingests New Mexico oil and gas well data for a provided list of API
+numbers, stores normalized records in SQLite, and exposes the data through a
+small read-only FastAPI service.
 
-The project will be built step by step:
+The ingestion source is the official NM OCD Well Details page,example:
 
-1. Load New Mexico oil and gas well data for the provided API numbers into SQLite.
-2. Serve that data through a small Python API.
-3. Generate the required polygon-search CSV.
-
-Part 1 ingestion scrapes the official NM OCD Well Details pages for the provided API numbers,
-normalizes the fields, and loads the exact required `api_well_data` table into SQLite.
-
-```bash
-cp .env.example .env
+```text
+https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-015-25325
 ```
 
-Add your Firecrawl key to `.env` once. Keep `.env` local; it is ignored by git.
+Firecrawl is used to fetch those protected pages. The project supports both a
+normal Firecrawl scrape flow and a supervised browser-session flow for cases
+where the official site presents Cloudflare or Turnstile protection.
 
-Before the first full scrape, verify the persistent Firecrawl browser profile against the protected
-NM OCD site:
+## What This Repository Contains
 
-```bash
-make open-session
-```
+- `app/main.py` - FastAPI application factory and ASGI entrypoint.
+- `app/api/` - API routes, OpenAPI documentation constants, and HTTP cache helpers.
+- `app/cli/` - command-line interface used by the `Makefile` for scraping,
+  session management, and database loading.
+- `app/services/` - ingestion pipeline, query services, and the Well Details
+  scraping/parsing clients.
+- `app/repositories/` - SQLite schema, create/load/query functions, and
+  read-only connection helpers.
+- `app/schemas/` - API request validation helpers.
+- `app/utils/` - normalization and geospatial helpers.
+- `data/apis_pythondev_test.csv` - input API numbers to scrape.
+- `data/api_well_data_scraped.csv` - normalized scraped output CSV.
+- `data/scrape_checkpoint.json` - resumable scraper state.
+- `data/scrape_report.json` - latest scrape summary and data-quality report.
+- `api_well_data.db` - local SQLite database file.
+- `tests/` - pytest coverage for parsing, ingestion, normalization, repository
+  behavior, CLI behavior, geospatial logic, and API routes.
 
-Open the interactive Firecrawl URL printed by that command. If the official page shows a
-Cloudflare/Turnstile challenge, complete it there and wait until the real Well Details data is
-visible. Keep that session open and confirm the scraper can parse through the same live browser:
+## Stack And Tools
 
-```bash
-make check-session
-```
-
-If `make check-session` confirms it can parse one well, run the ingestion while the browser session
-is still open. After ingestion finishes, close the session.
-
-```bash
-make scraping
-make load-db
-make close-session
-```
-
-Or run the whole ingestion:
-
-```bash
-make ingest
-```
-
-For a longer scrape that may hit the protected page after starting, use the supervised command:
-
-```bash
-make scraping-supervised
-make load-db
-```
-
-Or:
-
-```bash
-make ingest-supervised
-```
-
-If protected pages appear, `scrape-wells-supervised` closes the stale Firecrawl browser session,
-increments `NM_OCD_FIRECRAWL_PROFILE` in `.env` (for example,
-`nm-ocd-verified-6` to `nm-ocd-verified-7`), opens a fresh live browser session, and prints the
-interactive URL. Complete any Cloudflare/Turnstile prompt manually in that browser. The command
-keeps checking the session and resumes from `data/scrape_checkpoint.json` once real Well Details
-data is visible. Informational website modals such as Close/OK/I understand may be dismissed
-automatically; Cloudflare controls are not clicked automatically.
-
-The scraper uses Firecrawl's single-page scrape endpoint with a named browser profile, so a
-verified profile can preserve cookies/session state for the protected NM OCD pages. It writes:
-
-- `data/api_well_data_scraped.csv`
-- `data/scrape_report.json`
-- `data/scrape_checkpoint.json`
-
-If protected pages are returned instead of well data, the scraper stops after repeated blocks and
-reports those APIs instead of guessing values. Rerun `make open-session`, complete the challenge,
-keep the session open, and retry `make ingest`; the checkpoint allows the scraper to resume.
-
-## Running the API
-
-Part 2 exposes the SQLite data through a read-only FastAPI service. The API expects the database
-table to be named `api_well_data` and the stored `API` values to be digit-only text.
-
-```bash
-make start
-```
-
-The API uses `SYNMAX_DATABASE_PATH` from the process environment. You can keep that value in
-`.env`, and `make start` will load it before starting the API:
-
-```bash
-SYNMAX_DATABASE_PATH=/absolute/path/to/api_well_data.db
-```
-
-For local development, use:
-
-```bash
-make start
-```
-
-Keep `.env.example` as the shareable template and use `.env` for your local machine path.
-
-Health check:
-
-```bash
-curl http://127.0.0.1:8000/health
-```
-
-Single-well lookup:
-
-```bash
-curl http://127.0.0.1:8000/well/30-015-25325
-```
-
-The public route requires a hyphenated API number like `30-015-25325`. Internally, it normalizes
-that value to `3001525325` to match the SQLite table.
-
-Polygon search:
-
-```bash
-curl 'http://127.0.0.1:8000/wells/polygon?points=32.81,-104.19;32.66,-104.32;32.54,-104.24;32.50,-104.03;32.73,-104.01;32.79,-103.91;32.84,-104.05;32.81,-104.19'
-```
-
-The polygon endpoint accepts ordered `lat,lon` pairs. At least three distinct points are required
-because a polygon is a closed area; two points define only a line. The API validates coordinate
-ranges, closes the polygon when needed, prefilters candidate rows with the latitude/longitude
-index, and then uses exact Shapely geometry matching. Wells on the polygon boundary are included.
-
-Successful read responses include `Cache-Control: public, max-age=300` and an `ETag`, so repeated
-requests can use standard HTTP caching.
-
-## Planned Stack
+Runtime:
 
 - Python 3.11+
 - SQLite
 - FastAPI
 - Uvicorn
+- Pydanticv
 - Shapely
-- pytest
-- ruff
+- Firecrawl REST API for scraping and browser sessions
 
-## Current Status
+Developer tooling:
 
-Step 1 has single-source Well Details scraping, field normalization, checkpointing, reporting, and
-SQLite loading in place. Step 2 has a read-only FastAPI service for health checks, single-well
-lookup, and polygon search.
+- `make` for common local commands
+- `pytest` for tests
+- `ruff` for linting
+- Python standard-library `sqlite3`, `csv`, `html.parser`, and `urllib`
+
+The Firecrawl integration is implemented directly with REST calls through
+`urllib`; there is no Firecrawl Python SDK dependency.
+
+## Quick Start From A Fresh Copy
+
+1. Clone or fork the repository.
+
+   ```bash
+   git clone <your-repo-url>
+   cd "Synmax Project"
+   ```
+
+2. Create a virtual environment and install the project.
+
+   ```bash
+   python3.11 -m venv .venv
+   .venv/bin/pip install --upgrade pip
+   .venv/bin/pip install -e ".[dev]"
+   ```
+
+3. Create your local environment file.
+
+   ```bash
+   cp .env.example .env
+   ```
+
+4. Add `.env` fiel to the root folder.
+
+   ```bash
+   FIRECRAWL_API_KEY=<your-firecrawl-key>
+   NM_OCD_FIRECRAWL_PROFILE=nm-ocd
+   NM_OCD_REQUEST_DELAY_SECONDS=7
+   NM_OCD_BROWSER_TTL_SECONDS=3600
+   NM_OCD_BROWSER_ACTIVITY_TTL_SECONDS=3600
+   NM_OCD_BROWSER_WAIT_MS=5000
+   SYNMAX_DATABASE_PATH=api_well_data.db
+   ```
+
+5. If you already have `data/api_well_data_scraped.csv`, load it into SQLite.
+
+   ```bash
+   make load-db
+   ```
+
+6. Start the API.
+
+   ```bash
+   make start
+   ```
+
+7. Test the service.
+
+   ```bash
+   curl http://127.0.0.1:8000/health
+   curl http://127.0.0.1:8000/well/30-015-25325
+   curl 'http://127.0.0.1:8000/wells/polygon?points=32.81,-104.19;32.66,-104.32;32.54,-104.24;32.50,-104.03;32.73,-104.01;32.79,-103.91;32.84,-104.05'
+   ```
+
+OpenAPI docs are available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Common Commands
+
+| Command | What it does |
+| --- | --- |
+| `make start` | Starts Uvicorn with `app.main:app --reload`. |
+| `make open-session` | Creates a live Firecrawl browser session for manual verification. |
+| `make check-session` | Confirms the active session/profile can parse a real Well Details page. |
+| `make scraping` | Scrapes Well Details pages into `data/api_well_data_scraped.csv`. |
+| `make scraping-supervised` | Scrapes and automatically opens new supervised sessions when protection blocks progress. |
+| `make load-db` | Recreates and loads `api_well_data.db` from the scraped CSV. |
+| `make ingest` | Runs `make scraping` and then `make load-db`. |
+| `make ingest-supervised` | Runs supervised scraping and then loads SQLite. |
+| `make close-session` | Closes the active Firecrawl browser session so profile state can be saved. |
+| `make reset-ingest` | Deletes scrape artifacts and clears the local database table. |
+| `make test` | Runs pytest. |
+| `make lint` | Runs ruff. |
+
+Direct CLI examples:
+
+```bash
+.venv/bin/python -m app.cli scrape-wells --help
+.venv/bin/python -m app.cli scrape-wells-supervised --help
+.venv/bin/python -m app.cli load-db --help
+```
+
+## Full Scrape Workflow
+
+Use this path when you need to regenerate the scraped CSV from the official
+NM OCD site.
+
+1. Open a Firecrawl browser session.
+
+   ```bash
+   make open-session
+   ```
+
+2. Open the printed interactive Firecrawl URL.
+
+3. If the official site shows a Cloudflare or Turnstile challenge, complete it
+   manually in the Firecrawl browser.
+
+4. Wait until real Well Details data is visible.
+
+5. Keep the session open and verify the parser can read through it.
+
+   ```bash
+   make check-session
+   ```
+
+6. Run ingestion.
+
+   ```bash
+   make ingest
+   ```
+
+7. Close the session after ingestion finishes.
+
+   ```bash
+   make close-session
+   ```
+
+For longer or fragile scrapes, prefer the supervised command:
+
+```bash
+make ingest-supervised
+```
+
+The supervised command stops quickly when protected or failed pages appear,
+closes the stale browser session, rotates `NM_OCD_FIRECRAWL_PROFILE` in `.env`
+when the configured profile follows the expected numbered pattern, opens a new
+Firecrawl browser session, prints the live URL, waits for manual verification,
+and resumes from `data/scrape_checkpoint.json`.
+
+## Architecture
+
+The project is intentionally split into small layers:
+
+1. CLI layer: parses commands, loads `.env`, chooses Firecrawl client strategy,
+   and starts scrape/load operations.
+2. Scraping layer: fetches `WellDetails.aspx`, detects protected pages, retries
+   failures, writes checkpoint/report/CSV outputs, and resumes safely.
+3. Parsing layer: extracts assignment fields from the official page HTML or
+   from a Firecrawl browser accessibility snapshot.
+4. Normalization layer: maps source labels and export aliases into the exact
+   `api_well_data` schema, coerces numeric fields, and normalizes API numbers.
+5. Repository layer: creates the SQLite table/indexes, upserts rows by API, and
+   provides read queries.
+6. API layer: serves read-only lookup and polygon-search endpoints with
+   process-level and HTTP caching.
+
+## Data Flow
+
+```mermaid
+flowchart LR
+    A["data/apis_pythondev_test.csv<br/>requested API numbers"] --> B["CLI<br/>scrape-wells or scrape-wells-supervised"]
+
+    B --> C{"Firecrawl access path"}
+    C -->|"active session file exists"| D["data/firecrawl_browser_session.json<br/>browser session id"]
+    C -->|"no active session"| E["Firecrawl /v2/scrape<br/>named profile"]
+
+    D --> F["Firecrawl /v2/browser<br/>agent-browser open + snapshot"]
+    E --> G["WellDetails.aspx<br/>HTML/rawHtml"]
+    F --> H["snapshot_to_html"]
+    H --> G
+
+    G --> I["WellDetails parser<br/>labels, API, lat/long, CRS"]
+    I --> J["Normalizer<br/>assignment columns + types"]
+
+    J --> K["data/scrape_checkpoint.json<br/>completed, blocked, failures"]
+    J --> L["data/api_well_data_scraped.csv<br/>normalized rows"]
+    K --> M["data/scrape_report.json<br/>counts, missing APIs, null fields"]
+
+    L --> N["load-db<br/>normalize again + filter requested APIs"]
+    N --> O["SQLite api_well_data<br/>primary key + lat/lon index"]
+
+    O --> P["FastAPI routes<br/>/health, /well/{api}, /wells/polygon"]
+    P --> Q["Repository queries<br/>read-only SQLite"]
+    Q --> R["Service cache<br/>LRU keyed by DB mtime"]
+    R --> S["HTTP cache<br/>Cache-Control + ETag + 304"]
+
+    classDef input fill:#eef6ff,stroke:#3178c6,stroke-width:1px,color:#123;
+    classDef process fill:#f8f5ff,stroke:#6b46c1,stroke-width:1px,color:#1f143d;
+    classDef storage fill:#f0fff4,stroke:#2f855a,stroke-width:1px,color:#102a1d;
+    classDef external fill:#fff7ed,stroke:#c05621,stroke-width:1px,color:#3b1d07;
+    classDef api fill:#fef2f2,stroke:#c53030,stroke-width:1px,color:#3b0d0d;
+
+    class A input;
+    class B,I,J,N,P,Q,R,S process;
+    class K,L,M,O,D storage;
+    class C,E,F,G,H external;
+```
+
+## Firecrawl Integration Details
+
+The Firecrawl code lives in `app/services/well_details/clients.py`, with CLI
+orchestration in `app/cli/commands.py`.
+
+There are three client classes:
+
+- `FirecrawlWellDetailsClient` calls `POST https://api.firecrawl.dev/v2/scrape`.
+  It requests `html` and `rawHtml`, disables main-content-only extraction, sends
+  a browser-like user agent, waits for the page, disables Firecrawl cache storage,
+  and optionally attaches a named profile with `saveChanges: true`.
+- `FirecrawlBrowserClient` calls the Firecrawl browser endpoints. It creates a
+  browser session, executes Node or bash browser commands, and closes the
+  session.
+- `FirecrawlBrowserSessionWellDetailsClient` uses an already-open browser
+  session. It runs `agent-browser open <url>`, waits, captures an accessibility
+  snapshot, and converts that snapshot into parser-friendly HTML.
+
+The CLI chooses the browser-session client first when
+`data/firecrawl_browser_session.json` exists and is not marked closed. If there
+is no active session, it falls back to `/v2/scrape` with the configured
+`NM_OCD_FIRECRAWL_PROFILE`.
+
+### Why A Browser Session Is Needed
+
+The official NM OCD site can return Cloudflare or Turnstile protection instead
+of well data. A normal scrape may receive a challenge page such as "Just a
+moment" or "Verification Failed". The project does not try to bypass that
+challenge in code. Instead, it opens a Firecrawl live browser session so a human
+can complete the verification step. Once the real Well Details page is visible,
+the scraper can use that same browser session or saved Firecrawl profile state.
+
+The important pieces are:
+
+- `NM_OCD_FIRECRAWL_PROFILE` names the persistent Firecrawl profile that can
+  retain cookies/session state.
+- `make open-session` creates a live browser session using that profile.
+- `make check-session` verifies that the active session/profile returns actual
+  Well Details data and that the parser can extract fields.
+- `make close-session` closes the session so Firecrawl can save profile changes.
+
+### Why `firecrawl_browser_session.json` Exists
+
+`data/firecrawl_browser_session.json` stores the active Firecrawl browser
+session metadata returned by Firecrawl. The CLI needs it because later commands
+must know which browser session ID to use.
+
+It usually contains:
+
+- the Firecrawl browser session `id`
+- the interactive live-view URL
+- the opened Well Details URL
+- the profile name
+- whether the session was closed
+- any close error encountered during cleanup
+
+This file is local runtime state and is ignored by git. It should not be
+committed. If it points at an expired or closed browser session, run
+`make close-session` if possible, delete the stale file if necessary, and open a
+new session.
+
+### Why `scrape_checkpoint.json` Exists
+
+`data/scrape_checkpoint.json` makes long scrapes resumable. The scraper updates
+it after every attempted API number, so an interruption does not lose all work.
+
+It has three main sections:
+
+- `completed` - normalized records keyed by digit-only API number
+- `blocked` - APIs that returned protected/challenge pages
+- `failures` - APIs that failed because of Firecrawl, browser, parse, or value
+  errors
+
+On the next run, the scraper skips completed APIs unless `--no-resume` is used.
+The CSV and report are rebuilt from this checkpoint, which keeps the artifacts
+consistent.
+
+### Why `scrape_report.json` Exists
+
+`data/scrape_report.json` is the human-readable scrape summary. It helps decide
+whether the scrape is complete enough to load or whether the session/profile
+needs attention.
+
+It includes:
+
+- source name, currently `WellDetails.aspx`
+- requested, scraped, blocked, failed, and missing counts
+- missing API numbers
+- blocked API numbers and reasons
+- parse failures and reasons
+- remaining null counts by assignment column
+- stopped reason, if the scraper stopped early
+
+## WellDetails.aspx Findings
+
+The page accepts hyphenated API numbers, and the code can build URLs for both
+10-digit and 14-digit API forms:
+
+- `3001525325` -> `30-015-25325`
+- `30015456780000` -> `30-015-45678-0000`
+
+The parser looks for the main data area and labels used by the official page:
+
+- page data area: `id="datapane"` or visible "General Well Information"
+- labels: `span` elements with `fw-bold`
+- values: `span` elements with `text-mute`
+- API number: hidden `id="API"` input or a hyphenated API in page text
+- coordinates: `Lat / Long` in the form `latitude,longitude CRS`
+
+The parser removes leading operator codes like `[371838] DJR OPERATING, LLC`,
+normalizing the operator to `DJR OPERATING, LLC`.
+
+Data quality depends on the official page. The scraper records
+missing values as `null` instead of inventing data. Use `scrape_report.json` and
+its `remaining_null_columns` section to see where source data is sparse.
+
+The parser explicitly treats protection-only pages as failures. If the page
+contains Cloudflare, Turnstile, "Just a moment", "Verification Failed", or
+"Please use our official API instead of scraping this page" without real well
+data, the scraper raises `ProtectedPageError` and records the API under
+`blocked`.
+
+## Scraping Failure Modes
+
+Scraping can fail or stop for several reasons:
+
+- Cloudflare or Turnstile returns a challenge page instead of `WellDetails.aspx`
+  data.
+- The Firecrawl profile has not been verified yet.
+- The browser session TTL or inactivity TTL expires.
+- `data/firecrawl_browser_session.json` points to a stale, closed, or invalid
+  session.
+- The official site invalidates cookies or changes its protection behavior.
+- Requests are paced too aggressively and trigger protection; increase
+  `NM_OCD_REQUEST_DELAY_SECONDS`.
+- Firecrawl rate limits the account or returns quota errors, commonly HTTP 429.
+- Firecrawl returns no HTML or reports a page-level metadata error.
+- The official page markup changes and expected labels/classes are no longer
+  present.
+- A requested API is invalid, missing, or no longer has a standard detail page.
+- The browser snapshot is incomplete or does not include "General Well
+  Information".
+- The scrape is interrupted; rerun with the checkpoint to resume.
+- The database is locked during load because the API, a DB viewer, or another
+  process has the SQLite file open for writing.
+
+Recommended recovery path:
+
+```bash
+make open-session
+make check-session
+make ingest-supervised
+make close-session
+```
+
+If the session file is stale and cannot be closed, remove only the ignored
+session file and open a fresh session:
+
+```bash
+rm -f data/firecrawl_browser_session.json
+make open-session
+```
+
+## Data Loading And Normalization
+
+The database load path is:
+
+```bash
+make load-db
+```
+
+The Makefile runs:
+
+```bash
+.venv/bin/python -m app.cli load-db --replace
+```
+
+That command:
+
+1. Reads requested API numbers from `data/apis_pythondev_test.csv`.
+2. Reads source records from `data/api_well_data_scraped.csv`.
+3. Normalizes each source row with `app/utils/normalize.py`.
+4. Filters out records whose API is not in the requested API set.
+5. Sorts rows by normalized API.
+6. Recreates the `api_well_data` table when `--replace` is used.
+7. Upserts rows by `API`.
+
+Normalization rules:
+
+- API numbers are stored as digit-only text, preserving leading zeroes.
+- Empty strings become `None`/SQLite `NULL`.
+- `GL Elevation`, `KB Elevation`, `DF Elevation`, and `TVD` are coerced to
+  integers when possible.
+- `Latitude` and `Longitude` are coerced to floats.
+- Existing assignment-column names are preferred over source aliases.
+- Export/source aliases are mapped into assignment columns.
+- `Surface Location` can be built from location pieces when it is missing.
+
+Important alias mappings:
+
+| Source field | Target column |
+| --- | --- |
+| `Current Operator` | `Operator` |
+| `Type` | `Well Type` |
+| `Direction` | `Directional Status` |
+| `Single / Multi Compl` | `Single/Multiple Completion` |
+| `Projection` | `CRS` |
+| `Lat / Long CRS` | `CRS` |
+| `True Vertical Depth` | `TVD` |
+| `Elevation` | `GL Elevation` |
+| `Kelly Bushing` | `KB Elevation` |
+| `Drilling Floor` | `DF Elevation` |
+| `Spud` or `Spud Date` | `Spud Date` |
+
+When `Surface Location` is absent, the normalizer builds it from any available
+location fields such as `Unit Letter`, `Section`, `Township`, `Range`, `Footages`,
+`Footage NS`, `NS Indicator`, `Footage EW`, and `EW Indicator`.
+
+## Database Schema And Indexes
+
+The SQLite table is intentionally named `api_well_data` and uses the assignment's
+exact column names, including spaces and the slash in
+`Single/Multiple Completion`. Because of those names, SQL queries must quote the
+columns.
+
+The project-created command path is:
+
+```bash
+make load-db
+```
+
+Equivalent direct CLI command:
+
+```bash
+.venv/bin/python -m app.cli load-db \
+  --source-csv data/api_well_data_scraped.csv \
+  --database api_well_data.db \
+  --replace
+```
+
+Equivalent raw SQLite table/index SQL:
+
+```sql
+CREATE TABLE IF NOT EXISTS api_well_data (
+    "Operator" TEXT,
+    "Status" TEXT,
+    "Well Type" TEXT,
+    "Work Type" TEXT,
+    "Directional Status" TEXT,
+    "Multi-Lateral" TEXT,
+    "Mineral Owner" TEXT,
+    "Surface Owner" TEXT,
+    "Surface Location" TEXT,
+    "GL Elevation" INTEGER,
+    "KB Elevation" INTEGER,
+    "DF Elevation" INTEGER,
+    "Single/Multiple Completion" TEXT,
+    "Potash Waiver" TEXT,
+    "Spud Date" TEXT,
+    "Last Inspection" TEXT,
+    "TVD" INTEGER,
+    "API" TEXT PRIMARY KEY NOT NULL,
+    "Latitude" REAL,
+    "Longitude" REAL,
+    "CRS" TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_well_data_lat_lon
+    ON api_well_data ("Latitude", "Longitude");
+```
+
+If you want to create the schema manually:
+
+```bash
+sqlite3 api_well_data.db <<'SQL'
+CREATE TABLE IF NOT EXISTS api_well_data (
+    "Operator" TEXT,
+    "Status" TEXT,
+    "Well Type" TEXT,
+    "Work Type" TEXT,
+    "Directional Status" TEXT,
+    "Multi-Lateral" TEXT,
+    "Mineral Owner" TEXT,
+    "Surface Owner" TEXT,
+    "Surface Location" TEXT,
+    "GL Elevation" INTEGER,
+    "KB Elevation" INTEGER,
+    "DF Elevation" INTEGER,
+    "Single/Multiple Completion" TEXT,
+    "Potash Waiver" TEXT,
+    "Spud Date" TEXT,
+    "Last Inspection" TEXT,
+    "TVD" INTEGER,
+    "API" TEXT PRIMARY KEY NOT NULL,
+    "Latitude" REAL,
+    "Longitude" REAL,
+    "CRS" TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_well_data_lat_lon
+    ON api_well_data ("Latitude", "Longitude");
+SQL
+```
+
+Why the indexes matter:
+
+- `"API" TEXT PRIMARY KEY` creates SQLite's primary-key index. The API uses it
+  for `/well/{api_number}`, and the loader uses it for `ON CONFLICT("API") DO
+  UPDATE` upserts.
+- `idx_api_well_data_lat_lon` supports the polygon endpoint. The API first uses
+  a latitude/longitude bounding-box query to reduce candidate rows, then Shapely
+  performs exact polygon coverage checks. This avoids running geometry logic
+  against every row in the table.
+
+## API Behavior
+
+### `GET /health`
+
+Checks whether the configured SQLite database can be opened read-only and the
+`api_well_data` table can be queried.
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+### `GET /well/{api_number}`
+
+Returns one well by hyphenated API number.
+
+```bash
+curl http://127.0.0.1:8000/well/30-015-25325
+```
+
+Public API numbers must be hyphenated:
+
+- valid: `30-015-25325`
+- valid: `30-015-45678-0000`
+- invalid: `3001525325`
+
+The route normalizes `30-015-25325` to `3001525325` before querying SQLite.
+
+### `GET /wells/polygon`
+
+Returns sorted API numbers whose coordinates are inside or on the boundary of a
+polygon.
+
+```bash
+curl 'http://127.0.0.1:8000/wells/polygon?points=32,-105;33,-105;33,-104;32,-104'
+```
+
+Rules:
+
+- `points` must be semicolon-separated `lat,lon` pairs.
+- At least three distinct coordinate pairs are required.
+- The polygon is closed automatically when the first and last point differ.
+- Latitude must be between `-90` and `90`.
+- Longitude must be between `-180` and `180`.
+- Self-intersecting or zero-area polygons are rejected.
+- Boundary points are included.
+
+## Caching
+
+There are two cache layers:
+
+1. Service-level LRU cache in `app/services/well_queries.py`.
+   The database file modification time is part of the cache key, so loading a
+   new DB file invalidates cached well and polygon results.
+2. HTTP cache headers in `app/api/cache.py`.
+   Successful read responses include:
+
+   ```text
+   Cache-Control: public, max-age=300
+   ETag: "<sha256-of-response-json>"
+   ```
+
+Clients can send `If-None-Match`; if the response has not changed, the API
+returns `304 Not Modified`.
+
+## Local Development Checks
+
+Run tests:
+
+```bash
+make test
+```
+
+Run lint:
+
+```bash
+make lint
+```
+
+Check the database schema:
+
+```bash
+sqlite3 api_well_data.db '.schema api_well_data'
+```
+
+Count loaded rows:
+
+```bash
+sqlite3 api_well_data.db 'SELECT COUNT(*) FROM api_well_data;'
+```
+
+## Troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| `FIRECRAWL_API_KEY is required` | Add your key to `.env` or pass `--env-file`. |
+| `Profile is not verified yet for NM OCD pages` | Run `make open-session`, complete the official site challenge in the live browser, then run `make check-session`. |
+| `Scrape incomplete` | Inspect `data/scrape_report.json`. If `blocked_count` is nonzero or `stopped_reason` mentions protected pages, refresh the Firecrawl session and resume with `make ingest-supervised`. |
+| `Browser session returned no page snapshot` | The saved browser session may have expired or the snapshot did not load the data pane. Open a new session and rerun `make check-session`. |
+| `HTTP 429 Too Many Requests` | Firecrawl rate limited the account. Wait, check quota/concurrency, and resume from the checkpoint later. |
+| `Database unavailable` | Confirm `SYNMAX_DATABASE_PATH` points to an existing SQLite file and that the process has read permission. |
+| `api_well_data.db is locked` | Stop `make start`, close DB viewers, and make sure no other load process is writing before running `make load-db` or `make reset-ingest`. |
+
+## Security And Repository Hygiene
+
+- Keep `.env` local. It is ignored by git.
+- Do not commit Firecrawl API keys.
+- Do not commit `data/firecrawl_browser_session.json`; it is ignored and may
+  contain live session metadata.
+- Treat scraped data artifacts as generated outputs. If you regenerate them,
+  review `scrape_report.json` before loading or committing data changes.
+- The scraper does not automatically solve Cloudflare or Turnstile challenges.
+  Manual verification is required when the official site asks for it.
