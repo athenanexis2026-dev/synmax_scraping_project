@@ -344,6 +344,13 @@ On the next run, the scraper skips completed APIs unless `--no-resume` is used.
 The CSV and report are rebuilt from this checkpoint, which keeps the artifacts
 consistent.
 
+### Why `sleep_with_heartbeat()` Exists
+
+`sleep_with_heartbeat()` is the scraper's pacing helper. It breaks the configured
+request delay into short one-second sleeps instead of one long sleep, which makes
+long scraping runs easier to interrupt and easier to test while still respecting
+`NM_OCD_REQUEST_DELAY_SECONDS`.
+
 ### Why `scrape_report.json` Exists
 
 `data/scrape_report.json` is the human-readable scrape summary. It helps decide
