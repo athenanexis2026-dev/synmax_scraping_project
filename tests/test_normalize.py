@@ -74,6 +74,35 @@ def test_normalize_record_prefers_assignment_columns_over_export_aliases() -> No
     assert record["CRS"] == "EPSG:4326"
 
 
+def test_normalize_record_extracts_tvd_only_from_true_vertical_depth_label() -> None:
+    record = normalize_record(
+        {
+            "API": "30-045-35432",
+            "Potash Waiver": (
+                "No C-129 Incidents: 0 Proposed: 10493 "
+                "Measured Vertical Depth: 10470 True Vertical Depth: 5502"
+            ),
+            "TVD": "",
+        }
+    )
+
+    assert record["TVD"] == 5502
+
+
+def test_normalize_record_does_not_use_neighbor_date_for_missing_inspection() -> None:
+    record = normalize_record(
+        {
+            "API": "30-005-00586",
+            "Last Inspection": (
+                "Current APD Expiration: 01/01/1902 Gas Capture Plan: "
+                "TA Expiration: PNR Expiration: Last MIT / BHT:"
+            ),
+        }
+    )
+
+    assert record["Last Inspection"] is None
+
+
 def test_normalize_records_filters_and_sorts_by_api() -> None:
     records = normalize_records(
         [

@@ -85,6 +85,10 @@ WELL_DETAILS_HTML = """
     <span class="text-mute ms-2">No</span>
   </div>
   <div class="d-flex">
+    <span class="fw-bold nowrap w-150px">Measured Vertical Depth:</span>
+    <span class="text-mute ms-2">10470</span>
+  </div>
+  <div class="d-flex">
     <span class="fw-bold nowrap w-150px">True Vertical Depth:</span>
     <span class="text-mute ms-2">5502</span>
   </div>
@@ -185,6 +189,53 @@ def test_parse_well_details_browser_snapshot_extracts_assignment_fields() -> Non
     assert record["Latitude"] == 33.0349884
     assert record["Longitude"] == -103.854126
     assert record["CRS"] == "NAD83"
+
+
+def test_parse_well_details_browser_snapshot_stops_at_neighbor_labels() -> None:
+    snapshot = """
+      - main
+        - heading "30-005-00863 SAMPLE WELL #001" [level=1]
+        - heading "General Well Information" [level=2]
+        - StaticText "Operator:"
+        - StaticText "["
+        - link "12345" [ref=e43]
+        - StaticText "] CELERO ENERGY II, LP"
+        - StaticText "Status:"
+        - StaticText "Plugged, Site Released"
+        - StaticText "Potash Waiver:"
+        - StaticText "No"
+        - StaticText "C-129 Incidents:"
+        - StaticText "0"
+        - heading "Proposed Formation and/or Notes" [level=3]
+        - StaticText "PA 11/09/2010 BLM"
+        - heading "Depths" [level=3]
+        - StaticText "Proposed:"
+        - StaticText "3059"
+        - StaticText "Measured Vertical Depth:"
+        - StaticText "3059"
+        - heading "Event Dates" [level=3]
+        - StaticText "Spud:"
+        - StaticText "11/09/2010"
+        - StaticText "Approved TA:"
+        - StaticText "Shut In:"
+        - StaticText "Plug & Abandoned Intent:"
+        - StaticText "Well Plugged:"
+        - StaticText "11/09/2010"
+        - StaticText "Last Inspection:"
+        - StaticText "06/03/2009"
+        - StaticText "Current APD Expiration:"
+        - StaticText "01/01/1902"
+        - heading "History" [level=3]
+    """
+
+    html = well_details_snapshot_to_html(snapshot)
+    record = normalize_record(parse_well_details_html(html))
+
+    assert record["API"] == "3000500863"
+    assert record["Potash Waiver"] == "No"
+    assert record["TVD"] is None
+    assert record["Spud Date"] == "11/09/2010"
+    assert record["Last Inspection"] == "06/03/2009"
 
 
 def test_parse_well_details_html_rejects_protected_page_without_data() -> None:

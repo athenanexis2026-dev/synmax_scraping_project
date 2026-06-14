@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import re
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,9 @@ LOCATION_FIELDS = [
 ]
 
 API_DIGITS = re.compile(r"\d+")
+MMDDYYYY_DATE = re.compile(r"\b\d{2}/\d{2}/\d{4}\b")
+YES_NO_PREFIX = re.compile(r"^(yes|no)\b", flags=re.IGNORECASE)
+TVD_LABEL = "True Vertical Depth"
 
 
 def read_api_numbers(csv_path: Path | str) -> set[str]:
@@ -123,6 +127,7 @@ def normalize_record(source_record: Mapping[str, Any]) -> dict[str, Any]:
 
     if record["Surface Location"] is None:
         record["Surface Location"] = build_surface_location(source_record)
+    _repair_well_detail_fields(record, source_record)
     record["API"] = normalize_api_number(record["API"])
     return record
 
@@ -158,6 +163,18 @@ def _find_api_column(fieldnames: list[str]) -> str | None:
     return None
 
 
+def _repair_well_detail_fields(
+    record: dict[str, Any], source_record: Mapping[str, Any]
+) -> None:
+    record["Potash Waiver"] = _coerce_yes_no(record["Potash Waiver"])
+    record["Spud Date"] = _coerce_date(record["Spud Date"])
+    record["Last Inspection"] = _coerce_date(
+        record["Last Inspection"], require_leading=True
+    )
+    if record["TVD"] is None:
+        record["TVD"] = _extract_labeled_true_vertical_depth(source_record)
+
+
 def _coerce_value(column: str, value: Any) -> Any:
     text = _clean_text(value)
     if text is None:
@@ -174,6 +191,59 @@ def _clean_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_yes_no(value: Any) -> str | None:
+    text = _clean_text(value)
+    if text is None:
+        return None
+    if match := YES_NO_PREFIX.search(text):
+        return match.group(1).capitalize()
+    return None if ":" in text else text
+
+
+def _coerce_date(value: Any, *, require_leading: bool = False) -> str | None:
+    text = _clean_text(value)
+    if text is None:
+        return None
+
+    date = _extract_first_valid_date(text, require_leading=require_leading)
+    if date is not None:
+        return date
+    return None if ":" in text else text
+
+
+def _extract_first_valid_date(
+    value: str, *, require_leading: bool = False
+) -> str | None:
+    for match in MMDDYYYY_DATE.finditer(value):
+        if require_leading and match.start() != 0:
+            return None
+        date_text = match.group(0)
+        try:
+            datetime.strptime(date_text, "%m/%d/%Y")
+        except ValueError:
+            continue
+        return date_text
+    return None
+
+
+def _extract_labeled_true_vertical_depth(
+    source_record: Mapping[str, Any]
+) -> int | None:
+    text_values = [
+        str(value)
+        for value in source_record.values()
+        if _clean_text(value) is not None
+    ]
+    pattern = re.compile(
+        rf"\b{re.escape(TVD_LABEL)}\s*:\s*(?P<value>-?\d[\d,]*(?:\.\d+)?)",
+        flags=re.IGNORECASE,
+    )
+    for text in text_values:
+        if match := pattern.search(text):
+            return _coerce_int(match.group("value"))
+    return None
 
 
 def _coerce_int(value: str) -> int | None:

@@ -290,15 +290,23 @@ def _snapshot_label_values(snapshot: str) -> dict[str, list[str]]:
         if text == "History":
             break
         if text in SNAPSHOT_SECTION_HEADINGS:
+            current_label = None
             continue
         if normalized in allowed_labels:
             current_label = normalized
             label_values.setdefault(current_label, [])
             continue
+        if _looks_like_snapshot_label(text):
+            current_label = None
+            continue
         if current_label and text not in {"`"}:
             label_values[current_label].append(text)
 
     return label_values
+
+
+def _looks_like_snapshot_label(text: str) -> bool:
+    return text.endswith(":") and _normalize_label(text) is not None
 
 
 def _snapshot_visible_texts(snapshot: str) -> list[str]:
