@@ -4,15 +4,20 @@ This project ingests New Mexico oil and gas well data for a provided list of API
 numbers, stores normalized records in SQLite, and exposes the data through a
 small read-only FastAPI service.
 
-The ingestion source is the official NM OCD Well Details page,example:
+The ingestion source is the official NM OCD Well Details page, for example:
 
 ```text
 https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-015-25325
 ```
 
-Firecrawl is used to fetch those protected pages. The project supports both a
-normal Firecrawl scrape flow and a supervised browser-session flow for cases
-where the official site presents Cloudflare or Turnstile protection.
+Firecrawl is a web data platform that can load JavaScript-rendered pages,
+return page HTML, and run managed browser sessions through an API. In this
+project it acts as the scraping and browser automation layer between our Python
+code and the official NM OCD website. The normal flow asks Firecrawl's scrape
+endpoint for the Well Details page HTML. The supervised flow opens a live
+Firecrawl browser session when the official site presents Cloudflare or
+Turnstile protection, so a human can complete verification and the scraper can
+continue from the verified session/profile.
 
 ## What This Repository Contains
 
@@ -42,7 +47,7 @@ Runtime:
 - SQLite
 - FastAPI
 - Uvicorn
-- Pydanticv
+- Pydantic
 - Shapely
 - Firecrawl REST API for scraping and browser sessions
 
@@ -73,13 +78,17 @@ The Firecrawl integration is implemented directly with REST calls through
    .venv/bin/pip install -e ".[dev]"
    ```
 
-3. Create your local environment file.
+3. Create your local environment file in the project root.
+
+   If you do not already have a `.env` file, copy the example template:
 
    ```bash
    cp .env.example .env
    ```
 
-4. Add `.env` fiel to the root folder.
+   If you already have a `.env` file from another copy of the project, move or
+   copy it into this repository's root folder. Then edit `.env` with your local
+   values:
 
    ```bash
    FIRECRAWL_API_KEY=<your-firecrawl-key>
@@ -91,19 +100,33 @@ The Firecrawl integration is implemented directly with REST calls through
    SYNMAX_DATABASE_PATH=api_well_data.db
    ```
 
-5. If you already have `data/api_well_data_scraped.csv`, load it into SQLite.
+4. If you already have `data/api_well_data_scraped.csv`, load it into SQLite.
 
    ```bash
    make load-db
    ```
 
-6. Start the API.
+   If you do not have that CSV yet, generate it first and then load the database:
+
+   ```bash
+   make ingest
+   ```
+
+   If the official site shows protection or the normal scrape gets blocked, the
+   supervised flow may trigger the security check, but it is easier and more
+   automatic than `make ingest`:
+
+   ```bash
+   make ingest-supervised
+   ```
+
+5. Start the API.
 
    ```bash
    make start
    ```
 
-7. Test the service.
+6. Test the service.
 
    ```bash
    curl http://127.0.0.1:8000/health
@@ -210,19 +233,16 @@ The project is intentionally split into small layers:
 ## Data Flow
 
 ```mermaid
-flowchart LR
+flowchart TD
     A["data/apis_pythondev_test.csv<br/>requested API numbers"] --> B["CLI<br/>scrape-wells or scrape-wells-supervised"]
 
-    B --> C{"Firecrawl access path"}
-    C -->|"active session file exists"| D["data/firecrawl_browser_session.json<br/>browser session id"]
-    C -->|"no active session"| E["Firecrawl /v2/scrape<br/>named profile"]
-
-    D --> F["Firecrawl /v2/browser<br/>agent-browser open + snapshot"]
-    E --> G["WellDetails.aspx<br/>HTML/rawHtml"]
-    F --> H["snapshot_to_html"]
-    H --> G
-
-    G --> I["WellDetails parser<br/>labels, API, lat/long, CRS"]
+    B --> C["Open Firecrawl browser session<br/>make open-session"]
+    C --> D["Manual verification if needed<br/>Cloudflare or Turnstile"]
+    D --> E["data/firecrawl_browser_session.json<br/>verified browser session id"]
+    E --> F["Firecrawl /v2/browser<br/>agent-browser open WellDetails.aspx"]
+    F --> G["Browser snapshot<br/>real Well Details page"]
+    G --> H["snapshot_to_html"]
+    H --> I["WellDetails parser<br/>labels, API, lat/long, CRS"]
     I --> J["Normalizer<br/>assignment columns + types"]
 
     J --> K["data/scrape_checkpoint.json<br/>completed, blocked, failures"]
@@ -245,8 +265,8 @@ flowchart LR
 
     class A input;
     class B,I,J,N,P,Q,R,S process;
-    class K,L,M,O,D storage;
-    class C,E,F,G,H external;
+    class E,K,L,M,O storage;
+    class C,D,F,G,H external;
 ```
 
 ## Firecrawl Integration Details
@@ -357,6 +377,21 @@ The parser looks for the main data area and labels used by the official page:
 - values: `span` elements with `text-mute`
 - API number: hidden `id="API"` input or a hyphenated API in page text
 - coordinates: `Lat / Long` in the form `latitude,longitude CRS`
+
+This is true for the Well Details markup the parser is built around. The HTML
+parser in `app/services/well_details/parser.py` reads the label/value pairs from
+the page and uses `LABEL_TO_COLUMN` to map official page labels such as
+`Direction`, `Single / Multi Compl`, `Spud`, and `True Vertical Depth` into the
+project's assignment columns. If the scraper is using a live browser session,
+the same module first converts the Firecrawl accessibility snapshot into
+parser-friendly HTML, then applies the same parsing logic.
+
+The second mapping pass happens in `app/utils/normalize.py`. That file contains
+`FIELD_MAPPING`, which handles source/export aliases such as `Current Operator`
+to `Operator`, `Type` to `Well Type`, `Elevation` to `GL Elevation`, and
+`Projection` to `CRS`. It also normalizes API numbers, converts numeric fields,
+and guarantees every row has the exact `api_well_data` column shape before the
+CSV is written or SQLite is loaded.
 
 The parser removes leading operator codes like `[371838] DJR OPERATING, LLC`,
 normalizing the operator to `DJR OPERATING, LLC`.
@@ -555,9 +590,12 @@ SQL
 
 Why the indexes matter:
 
-- `"API" TEXT PRIMARY KEY` creates SQLite's primary-key index. The API uses it
-  for `/well/{api_number}`, and the loader uses it for `ON CONFLICT("API") DO
-  UPDATE` upserts.
+- `"API" TEXT PRIMARY KEY` creates SQLite's primary-key index. In this database,
+  SQLite exposes that index as `sqlite_autoindex_api_well_data_1`. The
+  `/well/{api_number}` route normalizes the public hyphenated API number and
+  queries `api_well_data` by `"API"`, so the primary-key index supports single
+  well lookups. The loader also relies on the same constraint for
+  `ON CONFLICT("API") DO UPDATE` upserts.
 - `idx_api_well_data_lat_lon` supports the polygon endpoint. The API first uses
   a latitude/longitude bounding-box query to reduce candidate rows, then Shapely
   performs exact polygon coverage checks. This avoids running geometry logic
@@ -588,6 +626,8 @@ Public API numbers must be hyphenated:
 - valid: `30-015-45678-0000`
 - invalid: `3001525325`
 
+Invalid API number formats return `422`.
+
 The route normalizes `30-015-25325` to `3001525325` before querying SQLite.
 
 ### `GET /wells/polygon`
@@ -609,13 +649,25 @@ Rules:
 - Self-intersecting or zero-area polygons are rejected.
 - Boundary points are included.
 
+Invalid or missing `points` values return `422`.
+
 ## Caching
+
+I added caching because this API is read-heavy and the same well or polygon
+queries can be requested repeatedly. With a small CSV this is not strictly
+necessary, but it is a good engineering choice if the data grows, if polygon
+searches become expensive, or if multiple clients call the same endpoints. The
+goal is to reduce repeated SQLite reads and repeated Shapely geometry checks
+without making the data stale after a reload.
 
 There are two cache layers:
 
 1. Service-level LRU cache in `app/services/well_queries.py`.
-   The database file modification time is part of the cache key, so loading a
-   new DB file invalidates cached well and polygon results.
+   Single-well lookups and polygon search results are cached in process. The
+   database file modification time is part of the cache key, so running
+   `make load-db` and writing a new SQLite file naturally invalidates old
+   cached results. This gives the API a fast path for repeated reads while still
+   keeping the implementation simple and safe for a local SQLite-backed service.
 2. HTTP cache headers in `app/api/cache.py`.
    Successful read responses include:
 
@@ -624,8 +676,11 @@ There are two cache layers:
    ETag: "<sha256-of-response-json>"
    ```
 
-Clients can send `If-None-Match`; if the response has not changed, the API
-returns `304 Not Modified`.
+The HTTP cache layer helps clients and browsers avoid downloading the same JSON
+again. Clients can send `If-None-Match`; if the response has not changed, the
+API returns `304 Not Modified`. This is especially useful when the API is used
+by a frontend, dashboard, or repeated script that refreshes the same well or map
+area.
 
 ## Local Development Checks
 
