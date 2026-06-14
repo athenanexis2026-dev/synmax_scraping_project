@@ -12,12 +12,11 @@ https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-015-
 
 Firecrawl is a web data platform that can load JavaScript-rendered pages,
 return page HTML, and run managed browser sessions through an API. In this
-project it acts as the scraping and browser automation layer between our Python
-code and the official NM OCD website. The normal flow asks Firecrawl's scrape
-endpoint for the Well Details page HTML. The supervised flow opens a live
-Firecrawl browser session when the official site presents Cloudflare or
-Turnstile protection, so a human can complete verification and the scraper can
-continue from the verified session/profile.
+project it acts as the scraping and browser automation layer between the Python
+code and the official NM OCD website. Because the NM OCD pages can present
+Cloudflare or Turnstile protection, the practical scrape workflow uses a live
+Firecrawl browser session so a human can complete verification and the scraper
+can continue from the verified session/profile.
 
 ## What This Repository Contains
 
@@ -112,9 +111,9 @@ The Firecrawl integration is implemented directly with REST calls through
    make ingest
    ```
 
-   If the official site shows protection or the normal scrape gets blocked, the
-   supervised flow may trigger the security check, but it is easier and more
-   automatic than `make ingest`:
+   If the official site shows protection or the scrape stops on protected
+   pages, use the supervised flow. It opens a new browser session, waits for
+   manual verification, and resumes from the checkpoint:
 
    ```bash
    make ingest-supervised
@@ -261,7 +260,6 @@ flowchart TD
     classDef process fill:#f8f5ff,stroke:#6b46c1,stroke-width:1px,color:#1f143d;
     classDef storage fill:#f0fff4,stroke:#2f855a,stroke-width:1px,color:#102a1d;
     classDef external fill:#fff7ed,stroke:#c05621,stroke-width:1px,color:#3b1d07;
-    classDef api fill:#fef2f2,stroke:#c53030,stroke-width:1px,color:#3b0d0d;
 
     class A input;
     class B,I,J,N,P,Q,R,S process;
@@ -664,9 +662,9 @@ Invalid or missing `points` values return `422`.
 
 ## Caching
 
-I added caching because this API is read-heavy and the same well or polygon
+Caching is included because this API is read-heavy and the same well or polygon
 queries can be requested repeatedly. With a small CSV this is not strictly
-necessary, but it is a good engineering choice if the data grows, if polygon
+necessary, but it is a useful engineering choice if the data grows, if polygon
 searches become expensive, or if multiple clients call the same endpoints. The
 goal is to reduce repeated SQLite reads and repeated Shapely geometry checks
 without making the data stale after a reload.
