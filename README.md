@@ -64,6 +64,23 @@ Developer tooling:
 The Firecrawl integration is implemented directly with REST calls through
 `urllib`; there is no Firecrawl Python SDK dependency.
 
+## Where To Start: Install Packages
+
+From a terminal, start in the project root folder and run these bash commands:
+
+```bash
+cd "/Users/athenanexis/Documents/Synmax Project"
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+```
+
+The final command installs the local SynMax package plus the development tools
+listed in `pyproject.toml`, including `pytest` and `ruff`. If your system does
+not have `python3.11`, install Python 3.11+ first or use the available Python
+3.11+ command in the virtual environment step.
+
 ## Quick Start From A Fresh Copy
 
 1. Clone or fork the repository.
