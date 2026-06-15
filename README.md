@@ -10,6 +10,8 @@ The ingestion source is the official NM OCD Well Details page, for example:
 https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-015-25325
 ```
 
+![Logo](https://rafael-valdez-public.s3.us-east-1.amazonaws.com/Well_Data_Pipeline_Architecture.png)
+
 Firecrawl is a web data platform that can load JavaScript-rendered pages,
 return page HTML, and run managed browser sessions through an API. In this
 project it acts as the scraping and browser automation layer between the Python
