@@ -39,7 +39,7 @@ python -m app.cli scrape-wells
 
 That means: run the Python package `app.cli`, and pass it the command `scrape-wells`.
 
-## 5. CLI Parses The Command
+## 2. CLI Parses The Command
 
 In `commands.py`, `main()` does this:
 
@@ -51,6 +51,52 @@ args.func(args)
 ```
 
 This is the CLI dispatcher.
+
+Parsing command-line arguments means: Python looks at the words that were passed after `python -m app.cli` and turns them into a structured `args` object.
+
+For example, this command:
+
+```bash
+python -m app.cli scrape-wells --max-retries 5 --no-resume
+```
+
+is just a list of command-line words:
+
+```text
+scrape-wells
+--max-retries
+5
+--no-resume
+```
+
+`argparse` reads those words and builds an object like:
+
+```python
+args.command = "scrape-wells"
+args.max_retries = 5
+args.no_resume = True
+args.func = scrape_wells_command
+```
+
+In the real code, `args` is an `argparse.Namespace`. It is similar to a small object where each CLI option becomes an attribute. That is why the code can later write things like:
+
+```python
+args.env_file
+args.api_csv
+args.max_retries
+args.no_resume
+args.func(args)
+```
+
+If the user does not pass an option, `argparse` fills in the default value from `add_argument(...)`. For example, `--max-retries` defaults to the project default when the command does not provide it.
+
+The most important value is:
+
+```python
+args.func
+```
+
+That is how the parser remembers which handler function should run for the selected subcommand.
 
 It:
 
@@ -89,7 +135,9 @@ make scraping
   -> scrape_wells_command(args)
 ```
 
-## 6. Two Scrape Commands Exist
+So `args` is the bridge between the terminal command and the Python function. The Makefile starts the command, `argparse` turns the command into `args`, and then the selected handler reads settings from `args`.
+
+## 3. Two Scrape Commands Exist
 
 There are two related scraping commands:
 
@@ -143,6 +191,14 @@ Run `make open-session`, verify the page, then `make close-session` and retry.
 ```
 
 So `scrape-wells` is the simpler path. It expects the current browser session or saved Firecrawl profile to already be good enough.
+
+For `make ingest`, this also means the whole ingest process stops before database loading. `make ingest` is defined as:
+
+```makefile
+ingest: scraping load-db
+```
+
+The `scraping` step must succeed before `load-db` runs. If protected pages make `scrape-wells` exit with an incomplete scrape, `make` stops and does not run `load-db`.
 
 ### Supervised Command: `scrape-wells-supervised`
 
@@ -202,7 +258,7 @@ scrape-wells-supervised:
   wait for manual Cloudflare verification, then resume automatically.
 ```
 
-## 7. `scrape_wells_command()` Prepares The Scrape
+## 4. `scrape_wells_command()` Prepares The Scrape
 
 The scrape command's job is setup, not the scraping loop itself.
 
@@ -234,7 +290,7 @@ data/scrape_checkpoint.json
 
 It also includes retry settings, request delay, and whether to resume from a checkpoint.
 
-## 8. The Client Is Selected
+## 5. The Client Is Selected
 
 The CLI chooses the client in:
 
@@ -349,7 +405,7 @@ That is why the workflow says to open and verify a Firecrawl browser session whe
 That means Strategy 2 is not a Cloudflare bypass. It is a convenience fallback for cases where the saved profile is already trusted enough or the site is not challenging. For consistently protected pages, you probably need an active browser session path, or the CLI should fail fast and tell the user to run open-session / supervised mode instead of trying normal /v2/scrape.
 
 
-## 9. The Actual Scraping Loop Starts
+## 6. The Actual Scraping Loop Starts
 
 The real scrape loop is:
 
@@ -376,7 +432,24 @@ Then it checks the checkpoint file so it can skip wells that were already comple
 
 The checkpoint is what allows the scraper to resume instead of starting over every time.
 
-## 10. For Each API Number, Build A URL
+The `sorted(...)` call is there because `read_api_numbers(...)` returns a `set`.
+
+A set is useful because it automatically removes duplicate API numbers from the CSV. But a set does not preserve a reliable order. Without sorting, the scraper could visit APIs in an unpredictable order.
+
+So this line does two things:
+
+```python
+api_numbers = sorted(read_api_numbers(config.api_csv))
+```
+
+```text
+read_api_numbers(...) -> read and dedupe API numbers
+sorted(...)           -> make the scrape order stable and repeatable
+```
+
+That stable order makes checkpoint resumes, CSV output, progress messages, and reports easier to understand. The scraper is not trying to prioritize smaller API numbers. It is mainly choosing a deterministic order.
+
+## 7. For Each API Number, Build A URL
 
 Inside the loop:
 
@@ -396,7 +469,7 @@ That function turns an API number into a URL like:
 https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-...
 ```
 
-## 11. One API Is Scraped With `_scrape_one_api()`
+## 8. One API Is Scraped With `_scrape_one_api()`
 
 Then the loop calls:
 
@@ -445,7 +518,7 @@ It only knows: I have a client with a `scrape_html(url)` method.
 
 That keeps the pipeline clean. The scraping pipeline does not care how the HTML is fetched.
 
-## 12. Max Retries
+## 9. Max Retries
 
 The retry logic is inside `_scrape_one_api()`.
 
@@ -483,6 +556,26 @@ It retries errors like:
 
 It does not retry `ProtectedPageError` inside `_scrape_one_api()`. Protection is treated differently because Cloudflare or Turnstile usually will not be fixed by immediately trying the same request again.
 
+When a protected page is hit, `_scrape_one_api()` raises `ProtectedPageError` immediately. The outer `scrape_wells()` loop catches it, records that API under `blocked` in the checkpoint, writes the checkpoint/CSV/report files, and increments the consecutive blocked-page count.
+
+For normal `make ingest`, the default blocked stop threshold is:
+
+```python
+DEFAULT_BLOCKED_STOP_THRESHOLD = 3
+```
+
+So normal ingest does not necessarily stop on the first protected page. It stops when the scraper sees three protected pages in a row, unless that threshold was changed by CLI options or config.
+
+For supervised ingest, the threshold is stricter:
+
+```python
+SUPERVISED_BLOCKED_STOP_THRESHOLD = 1
+```
+
+That is why `make ingest-supervised` stops quickly, opens a browser verification flow, and then resumes from the checkpoint.
+
+Once normal `make ingest` stops because of protection, `scrape-wells` exits incomplete. Since `make ingest` depends on the `scraping` target finishing successfully before `load-db`, the database load step does not run.
+
 If max retries is reached, this line runs:
 
 ```python
@@ -509,7 +602,7 @@ Then it may continue to the next API, unless a configured failure threshold says
 
 So max retries does not automatically kill the whole scrape. It means: this one API failed after enough attempts; record it as failed.
 
-## 13. Firecrawl Fetches The Page
+## 10. Firecrawl Fetches The Page
 
 If using the normal client, the fetch happens in:
 
@@ -538,7 +631,7 @@ Firecrawl loads the official NM OCD page and returns HTML.
 
 If using the browser-session client, it instead navigates an active browser session and gets a page snapshot.
 
-## 14. What Is A Snapshot?
+## 11. What Is A Snapshot?
 
 When using the browser-session client, the code runs this command inside the Firecrawl browser session:
 
@@ -586,7 +679,7 @@ Pass that HTML into the normal parser
 
 That lets the project reuse the same parser path as much as possible.
 
-## 15. Parser Extracts Well Details
+## 12. Parser Extracts Well Details
 
 Once HTML comes back, parsing happens in:
 
@@ -595,6 +688,30 @@ parse_well_details_html(html_text, expected_api=None)
 ```
 
 The parser does not extract fields from a JSON API response. It reads them from the Well Details page markup.
+
+`parse_well_details_html(...)` is the main parser used by the ingestion pipeline. `_scrape_one_api()` calls it after every client fetch:
+
+```python
+html_text = client.scrape_html(url)
+parsed_record = parse_well_details_html(html_text, expected_api=api_number)
+```
+
+That means `_scrape_one_api()` always sees the same shape: a string called `html_text`.
+
+What changes is where that string came from:
+
+```text
+Normal /v2/scrape client:
+  Firecrawl returns real page HTML
+  -> parse_well_details_html(real_html)
+
+Live browser-session client:
+  Firecrawl returns a browser snapshot
+  -> well_details_snapshot_to_html(snapshot)
+  -> parse_well_details_html(synthetic_html)
+```
+
+So `parse_well_details_html(...)` is used in both paths. It parses either real HTML from `/v2/scrape` or synthetic HTML created from a live browser snapshot.
 
 The NM OCD page displays most values as label/value pairs. In the raw HTML, those pairs look roughly like this:
 
@@ -647,9 +764,31 @@ Some fields have extra parsing:
 
 If the page came from a live browser session, the client first converts the browser snapshot into simple parser-friendly HTML with the same label/value shape. That is why the same `parse_well_details_html()` function can handle both normal Firecrawl HTML and live-browser snapshot results.
 
+The helper `_snapshot_label_values(...)` is only used inside the browser-session conversion path:
+
+```text
+FirecrawlBrowserSessionWellDetailsClient.scrape_html(...)
+  -> agent-browser snapshot
+  -> well_details_snapshot_to_html(snapshot)
+  -> _snapshot_label_values(snapshot)
+  -> synthetic HTML
+  -> parse_well_details_html(synthetic HTML)
+```
+
+Its job is not to parse normal HTML. Its job is to read the visible text from the browser snapshot, find the "General Well Information" section, collect recognized labels such as `Operator`, `Status`, and `Lat / Long`, stop before the `History` section, and return label/value groups.
+
+Then `well_details_snapshot_to_html(...)` turns those groups into small HTML blocks that look like the normal NM OCD label/value markup:
+
+```html
+<span class="fw-bold">Operator:</span>
+<span class="text-mute">Example Operator</span>
+```
+
+After that, `parse_well_details_html(...)` can reuse the normal `_LabelValueParser` logic.
+
 It also checks whether the page is protected by Cloudflare or returned a "do not scrape" style page. If so, it raises `ProtectedPageError`.
 
-## 16. Results Are Written
+## 13. Results Are Written
 
 After each API is handled, `scrape_wells()` persists output:
 
@@ -671,7 +810,7 @@ The checkpoint tracks completed, blocked, and failed APIs.
 
 The report summarizes scrape status: how many requested, scraped, missing, blocked, failed, and so on.
 
-## 17. Firecrawl's Role In The Process
+## 14. Firecrawl's Role In The Process
 
 Firecrawl is the remote scraping and browser layer.
 
