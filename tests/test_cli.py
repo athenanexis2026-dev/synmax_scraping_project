@@ -15,6 +15,7 @@ API_NUMBER = "30-045-35432"
 def test_scrape_command_loads_env_file_and_uses_browser_session(
     tmp_path,
     monkeypatch,
+    capsys,
 ) -> None:
     env_file = tmp_path / ".env"
     _write_env_file(
@@ -31,15 +32,19 @@ def test_scrape_command_loads_env_file_and_uses_browser_session(
         def __init__(self, **kwargs):
             captured["browser_client_kwargs"] = kwargs
 
-    def fake_scrape_wells(config, client):
+    def fake_scrape_wells(config, client, *, progress_callback=None):
         captured["config"] = config
         captured["client"] = client
-        return {
+        report = {
             "scraped_count": 1,
             "requested_count": 1,
             "missing_count": 0,
+            "failed_count": 0,
             "stopped_reason": None,
         }
+        if progress_callback is not None:
+            progress_callback(report)
+        return report
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
     monkeypatch.delenv("NM_OCD_REQUEST_DELAY_SECONDS", raising=False)
@@ -68,6 +73,8 @@ def test_scrape_command_loads_env_file_and_uses_browser_session(
     assert captured["client"].session_id == "browser-1"
     assert captured["config"].request_delay_seconds == 11
     assert captured["config"].api_csv == api_csv
+    output = capsys.readouterr().out
+    assert "\033[32m1/1 wells scraped\033[0m" in output
 
 
 def test_open_session_command_writes_session_file_and_prints_interactive_url(

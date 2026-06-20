@@ -231,7 +231,11 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
     config = _scrape_config_from_args(args, resume=not args.no_resume)
     client = _well_details_client_for_command(args, api_key)
 
-    report = scrape_wells(config, client)
+    report = scrape_wells(
+        config,
+        client,
+        progress_callback=_print_supervised_progress,
+    )
     _print_scrape_summary(report, args)
     if report.get("stopped_reason"):
         print(report["stopped_reason"])
@@ -248,7 +252,6 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
     api_key = _required_env("FIRECRAWL_API_KEY")
     refresh_count = 0
     first_run = True
-    show_progress = False
     _ensure_active_browser_session(args, api_key)
 
     while True:
@@ -262,7 +265,7 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
         report = scrape_wells(
             config,
             _well_details_client_for_command(args, api_key),
-            progress_callback=_print_supervised_progress if show_progress else None,
+            progress_callback=_print_supervised_progress,
         )
         _print_scrape_summary(report, args)
 
@@ -310,7 +313,6 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
         )
         print("Verification passed. Resuming scrape from the checkpoint.")
         first_run = False
-        show_progress = True
 
     if not args.allow_incomplete:
         raise SystemExit(
