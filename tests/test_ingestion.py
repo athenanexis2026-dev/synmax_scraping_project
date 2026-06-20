@@ -152,3 +152,76 @@ def test_scrape_wells_can_stop_after_first_failed_page(tmp_path) -> None:
         "Stopped after 1 consecutive failed pages"
     )
     assert len(client.urls) == 1
+
+
+def test_scrape_wells_stops_after_three_consecutive_failed_pages(tmp_path) -> None:
+    api_csv = tmp_path / "apis.csv"
+    api_csv.write_text(
+        "api\n30-045-35432\n30-045-35433\n30-045-35434\n30-045-35435\n",
+        encoding="utf-8",
+    )
+    config = ScrapeConfig(
+        api_csv=api_csv,
+        output_csv=tmp_path / "wells.csv",
+        report_json=tmp_path / "report.json",
+        checkpoint_json=tmp_path / "checkpoint.json",
+        request_delay_seconds=0,
+        max_retries=1,
+        retry_backoff_seconds=0,
+        failed_stop_threshold=3,
+    )
+    client = FakeClient(
+        [
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            _well_html("30-045-35435"),
+        ]
+    )
+
+    report = scrape_wells(config, client, sleeper=lambda _: None)
+
+    assert report["scraped_count"] == 0
+    assert report["failed_count"] == 3
+    assert report["missing_count"] == 4
+    assert report["stopped_reason"].startswith(
+        "Stopped after 3 consecutive failed pages"
+    )
+    assert len(client.urls) == 3
+
+
+def test_scrape_wells_resets_failed_stop_counter_after_success(tmp_path) -> None:
+    api_csv = tmp_path / "apis.csv"
+    api_csv.write_text(
+        "api\n30-045-35432\n30-045-35433\n30-045-35434\n30-045-35435\n"
+        "30-045-35436\n30-045-35437\n",
+        encoding="utf-8",
+    )
+    config = ScrapeConfig(
+        api_csv=api_csv,
+        output_csv=tmp_path / "wells.csv",
+        report_json=tmp_path / "report.json",
+        checkpoint_json=tmp_path / "checkpoint.json",
+        request_delay_seconds=0,
+        max_retries=1,
+        retry_backoff_seconds=0,
+        failed_stop_threshold=3,
+    )
+    client = FakeClient(
+        [
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            _well_html("30-045-35434"),
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            FirecrawlBrowserError("Browser session returned no page snapshot"),
+            _well_html("30-045-35437"),
+        ]
+    )
+
+    report = scrape_wells(config, client, sleeper=lambda _: None)
+
+    assert report["scraped_count"] == 2
+    assert report["failed_count"] == 4
+    assert report["missing_count"] == 4
+    assert report["stopped_reason"] is None
+    assert len(client.urls) == 6

@@ -73,6 +73,7 @@ def test_scrape_command_loads_env_file_and_uses_browser_session(
     assert captured["client"].session_id == "browser-1"
     assert captured["config"].request_delay_seconds == 11
     assert captured["config"].api_csv == api_csv
+    assert captured["config"].failed_stop_threshold == 3
     output = capsys.readouterr().out
     assert "\033[32m1/1 wells scraped\033[0m" in output
 

@@ -45,6 +45,7 @@ DEFAULT_REQUEST_DELAY_SECONDS = 7.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = 5.0
 DEFAULT_BLOCKED_STOP_THRESHOLD = 3
+DEFAULT_FAILED_STOP_THRESHOLD = 3
 SUPERVISED_BLOCKED_STOP_THRESHOLD = 1
 SUPERVISED_FAILED_STOP_THRESHOLD = 1
 SUPERVISED_MAX_RETRIES = 1
@@ -228,7 +229,11 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
     """Scrape the requested Well Details pages and fail unless the scrape is complete."""
 
     api_key = _required_env("FIRECRAWL_API_KEY")
-    config = _scrape_config_from_args(args, resume=not args.no_resume)
+    config = _scrape_config_from_args(
+        args,
+        resume=not args.no_resume,
+        failed_stop_threshold=DEFAULT_FAILED_STOP_THRESHOLD,
+    )
     client = _well_details_client_for_command(args, api_key)
 
     report = scrape_wells(
@@ -241,8 +246,9 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
         print(report["stopped_reason"])
     if not args.allow_incomplete and report["missing_count"] > 0:
         raise SystemExit(
-            "Scrape incomplete. Run `make open-session`, verify the page, "
-            "keep that browser session open, then retry `make ingest`."
+            "Scrape incomplete. If repeated failed pages triggered protection, "
+            "run `make ingest-supervised`; otherwise refresh the Firecrawl "
+            "browser session and retry `make ingest`."
         )
 
 
