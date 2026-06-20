@@ -12,7 +12,7 @@ import app.cli.commands as cli_commands
 API_NUMBER = "30-045-35432"
 
 
-def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
+def test_scrape_command_loads_env_file_and_uses_browser_session(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -20,15 +20,16 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
     _write_env_file(
         env_file,
         FIRECRAWL_API_KEY="fc-test",
-        NM_OCD_FIRECRAWL_PROFILE="nm-ocd-test",
         NM_OCD_REQUEST_DELAY_SECONDS="11",
     )
     api_csv = _write_api_csv(tmp_path)
+    session_json = tmp_path / "session.json"
+    session_json.write_text('{"id": "browser-1"}', encoding="utf-8")
     captured = {}
 
-    class FakeFirecrawlClient:
+    class FakeBrowserClient:
         def __init__(self, **kwargs):
-            captured["client_kwargs"] = kwargs
+            captured["browser_client_kwargs"] = kwargs
 
     def fake_scrape_wells(config, client):
         captured["config"] = config
@@ -41,9 +42,8 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
         }
 
     monkeypatch.delenv("FIRECRAWL_API_KEY", raising=False)
-    monkeypatch.delenv("NM_OCD_FIRECRAWL_PROFILE", raising=False)
     monkeypatch.delenv("NM_OCD_REQUEST_DELAY_SECONDS", raising=False)
-    monkeypatch.setattr(cli_commands, "FirecrawlWellDetailsClient", FakeFirecrawlClient)
+    monkeypatch.setattr(cli_commands, "FirecrawlBrowserClient", FakeBrowserClient)
     monkeypatch.setattr(cli_commands, "scrape_wells", fake_scrape_wells)
     _set_cli_args(
         monkeypatch,
@@ -58,13 +58,14 @@ def test_scrape_command_loads_env_file_and_uses_firecrawl_profile(
         str(tmp_path / "report.json"),
         "--checkpoint-json",
         str(tmp_path / "checkpoint.json"),
-        "--no-browser-session",
+        "--browser-session-json",
+        str(session_json),
     )
 
     cli.main()
 
-    assert captured["client_kwargs"]["api_key"] == "fc-test"
-    assert captured["client_kwargs"]["profile_name"] == "nm-ocd-test"
+    assert captured["browser_client_kwargs"]["api_key"] == "fc-test"
+    assert captured["client"].session_id == "browser-1"
     assert captured["config"].request_delay_seconds == 11
     assert captured["config"].api_csv == api_csv
 
@@ -468,6 +469,9 @@ def test_scrape_wells_supervised_times_out_waiting_for_verification(
         def __init__(self, **kwargs):
             pass
 
+        def close_session(self, session_id):
+            return {"success": True}
+
         def create_session(self, **kwargs):
             return {
                 "success": True,
@@ -529,6 +533,9 @@ def test_scrape_wells_supervised_stops_after_max_session_refreshes(
     class FakeBrowserClient:
         def __init__(self, **kwargs):
             pass
+
+        def close_session(self, session_id):
+            return {"success": True}
 
         def create_session(self, **kwargs):
             return {

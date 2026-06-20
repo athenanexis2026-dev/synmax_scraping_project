@@ -2,7 +2,7 @@ import csv
 import json
 
 from app.services.ingestion import ScrapeConfig, scrape_wells
-from app.services.well_details.errors import FirecrawlBrowserError
+from app.services.well_details.errors import FirecrawlBrowserError, ProtectedPageError
 
 
 def _well_html(api: str) -> str:
@@ -84,11 +84,10 @@ def test_scrape_wells_stops_after_repeated_protected_pages(tmp_path) -> None:
         request_delay_seconds=0,
         blocked_stop_threshold=2,
     )
-    protected_html = (
-        "<html><script src='https://challenges.cloudflare.com/turnstile/v0/api.js'>"
-        "</script><body>Just a moment</body></html>"
+    protected_page = ProtectedPageError(
+        "Well Details page returned protection content without data"
     )
-    client = FakeClient([protected_html, protected_html, _well_html("30-045-35434")])
+    client = FakeClient([protected_page, protected_page, _well_html("30-045-35434")])
 
     report = scrape_wells(config, client, sleeper=lambda _: None)
 

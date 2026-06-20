@@ -18,10 +18,8 @@ from app.repositories.wells import (
 from app.services.ingestion import ScrapeConfig, scrape_wells
 from app.services.well_details.clients import (
     FIRECRAWL_API_BASE_URL,
-    FIRECRAWL_SCRAPE_URL,
     FirecrawlBrowserClient,
     FirecrawlBrowserSessionWellDetailsClient,
-    FirecrawlWellDetailsClient,
 )
 from app.services.well_details.errors import (
     FirecrawlBrowserError,
@@ -240,7 +238,7 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
     if not args.allow_incomplete and report["missing_count"] > 0:
         raise SystemExit(
             "Scrape incomplete. Run `make open-session`, verify the page, "
-            "then `make close-session` and retry `make ingest`."
+            "keep that browser session open, then retry `make ingest`."
         )
 
 
@@ -251,6 +249,7 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
     refresh_count = 0
     first_run = True
     show_progress = False
+    _ensure_active_browser_session(args, api_key)
 
     while True:
         config = _scrape_config_from_args(
@@ -302,7 +301,6 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
             )
         except FirecrawlBrowserError as error:
             raise SystemExit(_browser_session_error_message(error)) from error
-        args.no_browser_session = False
         print("Open this Firecrawl live browser URL and complete Cloudflare if shown:")
         print(session.get("interactiveLiveViewUrl") or session.get("liveViewUrl"))
         _wait_for_profile_verification(
@@ -409,7 +407,7 @@ def _add_browser_session_commands(subparsers, common: argparse.ArgumentParser) -
     check_session = subparsers.add_parser(
         "check-session",
         parents=[common],
-        help="Scrape one Well Details page to confirm the Firecrawl profile is verified",
+        help="Scrape one Well Details page to confirm the browser session is verified",
     )
     check_session.add_argument(
         "--api",
@@ -467,12 +465,7 @@ def _add_browser_session_options(parser: argparse.ArgumentParser) -> None:
         "--browser-session-json",
         default=DEFAULT_BROWSER_SESSION_JSON,
         type=Path,
-        help="Use this active Firecrawl browser session before falling back to /scrape",
-    )
-    parser.add_argument(
-        "--no-browser-session",
-        action="store_true",
-        help="Ignore any active Firecrawl browser session file",
+        help="Active Firecrawl browser session metadata",
     )
 
 
@@ -487,12 +480,13 @@ def check_session_command(args: argparse.Namespace) -> None:
         record = parse_well_details_html(html, expected_api=api_number)
     except ProtectedPageError as error:
         raise SystemExit(
-            f"Profile is not verified yet for NM OCD pages: {error}. "
-            "Run `make open-session`, use the interactive URL, then `make close-session`."
+            f"Browser session is not verified yet for NM OCD pages: {error}. "
+            "Run `make open-session`, use the interactive URL, keep it open, "
+            "then retry."
         ) from error
 
     print(
-        "Verified Firecrawl profile for {api}: parsed Operator={operator!r}".format(
+        "Verified Firecrawl browser session for {api}: parsed Operator={operator!r}".format(
             api=record.get("API") or api_number,
             operator=record.get("Operator"),
         )
@@ -630,6 +624,30 @@ def _close_active_browser_session(session_json: Path, api_key: str) -> None:
 
     session["closed"] = True
     _write_json(session_json, session)
+
+
+def _ensure_active_browser_session(args: argparse.Namespace, api_key: str) -> None:
+    """Open and verify a browser session before supervised scraping starts."""
+
+    if _active_browser_session_id(args.browser_session_json):
+        return
+
+    api_number = _resolve_api_for_session(None, args.api_csv)
+    profile_name = _required_env(PROFILE_ENV_KEY)
+    try:
+        session = _create_browser_session_for_api(
+            api_key=api_key,
+            profile_name=profile_name,
+            api_number=api_number,
+            session_json=args.browser_session_json,
+        )
+    except FirecrawlBrowserError as error:
+        raise SystemExit(_browser_session_error_message(error)) from error
+
+    print("Open this Firecrawl live browser URL and complete Cloudflare if shown:")
+    print(session.get("interactiveLiveViewUrl") or session.get("liveViewUrl"))
+    _wait_for_profile_verification(args, api_key=api_key, api_number=api_number)
+    print("Verification passed. Starting scrape.")
 
 
 def _rotate_firecrawl_profile(
@@ -886,22 +904,11 @@ def _required_env(name: str) -> str:
 # ============================================================================
 # FIRECRAWL CLIENT HELPERS
 # ============================================================================
-def _firecrawl_endpoint() -> str:
-    configured = os.environ.get("FIRECRAWL_API_URL")
-    if not configured:
-        return FIRECRAWL_SCRAPE_URL
-    if configured.rstrip("/").endswith("/scrape"):
-        return configured
-    return configured.rstrip("/") + "/v2/scrape"
-
-
 def _firecrawl_api_base_url() -> str:
     configured = os.environ.get("FIRECRAWL_API_URL")
     if not configured:
         return FIRECRAWL_API_BASE_URL
     configured = configured.rstrip("/")
-    if configured.endswith("/scrape"):
-        return configured.rsplit("/", 2)[0]
     if configured.endswith("/v2"):
         return configured
     return configured + "/v2"
@@ -915,22 +922,19 @@ def _firecrawl_browser_client(api_key: str) -> FirecrawlBrowserClient:
 
 
 def _well_details_client_for_command(args: argparse.Namespace, api_key: str):
-    """Prefer a live browser session, then fall back to Firecrawl's scrape endpoint."""
+    """Build the only supported Well Details client: an active browser session."""
 
-    if not getattr(args, "no_browser_session", False):
-        session_id = _active_browser_session_id(args.browser_session_json)
-        if session_id:
-            return FirecrawlBrowserSessionWellDetailsClient(
-                browser_client=_firecrawl_browser_client(api_key),
-                session_id=session_id,
-                wait_for_ms=_env_int("NM_OCD_BROWSER_WAIT_MS", DEFAULT_BROWSER_WAIT_MS),
-            )
+    session_id = _active_browser_session_id(args.browser_session_json)
+    if not session_id:
+        raise SystemExit(
+            "No active Firecrawl browser session found. Run `make open-session`, "
+            "complete verification in the live browser, then retry."
+        )
 
-    return FirecrawlWellDetailsClient(
-        api_key=api_key,
-        profile_name=os.environ.get("NM_OCD_FIRECRAWL_PROFILE") or None,
-        endpoint=_firecrawl_endpoint(),
-        proxy=os.environ.get("NM_OCD_FIRECRAWL_PROXY", "auto"),
+    return FirecrawlBrowserSessionWellDetailsClient(
+        browser_client=_firecrawl_browser_client(api_key),
+        session_id=session_id,
+        wait_for_ms=_env_int("NM_OCD_BROWSER_WAIT_MS", DEFAULT_BROWSER_WAIT_MS),
     )
 
 
