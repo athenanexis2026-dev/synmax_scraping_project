@@ -39,72 +39,6 @@ python -m app.cli scrape-wells
 
 That means: run the Python package `app.cli`, and pass it the command `scrape-wells`.
 
-## 2. Why Use `.venv/bin/python`?
-
-The project deliberately uses the Python inside the local virtual environment:
-
-```bash
-.venv/bin/python -m app.cli scrape-wells
-```
-
-A virtual environment is an isolated Python installation for this project. It keeps project dependencies separate from the system Python installed on the machine.
-
-Using `.venv/bin/python` guarantees the command uses:
-
-- the Python version chosen for this project
-- the installed packages for this project
-- tools such as `pytest`, `ruff`, and `uvicorn` from `.venv`
-- no accidental dependency mismatch from the global machine setup
-
-For example, plain `python` might point to a system Python that does not have the required packages installed. `.venv/bin/python` should work because the project dependencies were installed there.
-
-So the Makefile is saying: run this with the project's known Python environment.
-
-## 3. Python Enters `__main__.py`
-
-Because the command is:
-
-```bash
-python -m app.cli
-```
-
-Python looks for this file:
-
-```text
-app/cli/__main__.py
-```
-
-That file contains:
-
-```python
-from app.cli import main
-
-if __name__ == "__main__":
-    main()
-```
-
-This file is tiny on purpose. Its only job is to say: when someone runs `python -m app.cli`, call the CLI's `main()` function.
-
-It does not scrape anything itself.
-
-## 4. `app.cli` Exposes `main`
-
-The import comes through:
-
-```text
-app/cli/__init__.py
-```
-
-```python
-from app.cli.commands import main
-```
-
-So `__main__.py` imports `main`, but the real function actually lives in:
-
-```text
-app/cli/commands.py
-```
-
 ## 5. CLI Parses The Command
 
 In `commands.py`, `main()` does this:
@@ -375,6 +309,38 @@ The normal path is:
 Try to scrape with active browser session if one exists.
 Otherwise, use Firecrawl scrape endpoint with saved profile.
 ```
+
+This distinction matters for `make ingest` and `make ingest-supervised`.
+
+`make ingest` runs:
+
+```text
+make ingest
+  -> make scraping
+  -> scrape-wells
+  -> choose one client before scraping starts
+  -> run scrape_wells(...)
+```
+
+If no active browser session exists, `make ingest` uses `/v2/scrape` first. If `/v2/scrape` returns protected or unusable pages, `make ingest` does not create a live browser session inside that same run. It records the blocked/missing APIs, stops if the incomplete scrape is not allowed, and tells the operator to open and verify a session before retrying.
+
+`make ingest-supervised` runs:
+
+```text
+make ingest-supervised
+  -> make scraping-supervised
+  -> scrape-wells-supervised
+  -> choose the currently available client
+  -> run scrape_wells(...)
+  -> if protected/failed pages cause a recoverable stop:
+       close stale browser session
+       rotate Firecrawl profile
+       create a new live browser session
+       wait for manual verification
+       resume from checkpoint
+```
+
+So supervised mode also starts by using the currently available client. The difference is what happens after protection appears: supervised mode creates and verifies a live browser session automatically, while normal ingest only reports the problem and exits.
 
 If Cloudflare blocks the `/v2/scrape` result, the parser detects that and raises `ProtectedPageError`. Then the outer pipeline records the API as blocked and may stop after several protected pages.
 
@@ -873,15 +839,4 @@ make scraping
   -> parser extracts fields
   -> normalize_record()
   -> write CSV, checkpoint, and report
-```
-
-## Mental Model
-
-```text
-commands.py  = command/control layer
-ingestion.py = scraping pipeline
-clients.py   = page-fetching layer
-parser.py    = field-extraction layer
-normalize.py = data cleanup layer
-Firecrawl    = remote browser/scraping engine
 ```
