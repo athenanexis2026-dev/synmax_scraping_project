@@ -4,7 +4,7 @@ Think of the scraping flow as a chain of handoffs. Each layer has a specific job
 
 - `Makefile` starts the command.
 - `app/cli/__main__.py` makes `python -m app.cli` executable.
-- `app/cli/commands.py` parses CLI arguments, loads environment values, and chooses the scraping client.
+- `app/cli/commands.py` parses CLI arguments, loads environment values, and builds the browser-session scraping client.
 - `app/services/ingestion.py` owns the scraping loop, retries, checkpointing, and output writing.
 - `app/services/well_details/clients.py` asks Firecrawl to fetch page content.
 - `app/services/well_details/parser.py` extracts well fields from the returned content.
@@ -154,6 +154,8 @@ scrape_wells(config, client)
 
 The difference is what happens when protected pages, failed pages, or Cloudflare verification issues appear.
 
+Both commands use the same Firecrawl fetch strategy: an active Firecrawl browser session. There is no direct `/v2/scrape` fallback for Well Details pages.
+
 ### Normal Command: `scrape-wells`
 
 The normal command is run by:
@@ -178,19 +180,19 @@ This command does one scrape pass:
 
 ```text
 Build config
-Choose client
+Build browser-session client
 Run scrape_wells(...)
 Print summary
 Fail if anything is still missing, unless --allow-incomplete was passed
 ```
 
-If Cloudflare blocks pages and the scrape is incomplete, this command does not automatically create a new browser session. It exits with guidance like:
+If there is no active browser session, this command exits before scraping and tells the operator to create one:
 
 ```text
-Run `make open-session`, verify the page, then `make close-session` and retry.
+No active Firecrawl browser session found. Run `make open-session`, complete verification in the live browser, then retry.
 ```
 
-So `scrape-wells` is the simpler path. It expects the current browser session or saved Firecrawl profile to already be good enough.
+So `scrape-wells` is the simpler path. It expects `data/firecrawl_browser_session.json` to point at a current verified Firecrawl browser session.
 
 For `make ingest`, this also means the whole ingest process stops before database loading. `make ingest` is defined as:
 
@@ -198,7 +200,7 @@ For `make ingest`, this also means the whole ingest process stops before databas
 ingest: scraping load-db
 ```
 
-The `scraping` step must succeed before `load-db` runs. If protected pages make `scrape-wells` exit with an incomplete scrape, `make` stops and does not run `load-db`.
+The `scraping` step must succeed before `load-db` runs. If the active browser session is missing, stale, unverified, or blocked, `make` stops and does not run `load-db`.
 
 ### Supervised Command: `scrape-wells-supervised`
 
@@ -223,6 +225,7 @@ scrape_wells_supervised_command(args)
 This command wraps the same `scrape_wells(...)` pipeline in a recovery loop:
 
 ```text
+Ensure an active browser session exists
 Run scrape_wells(...)
 If everything is complete, stop successfully
 If protected/failed pages caused a recoverable stop:
@@ -249,11 +252,13 @@ The practical difference is:
 
 ```text
 scrape-wells:
-  Try the scrape once with the available client.
+  Require an existing active browser session.
+  Try the scrape once through that session.
   If blocked/incomplete, tell the user what to do next.
 
 scrape-wells-supervised:
-  Try the scrape.
+  Ensure an active browser session exists.
+  Try the scrape through that session.
   If blocked/incomplete in a recoverable way, create a browser session,
   wait for manual Cloudflare verification, then resume automatically.
 ```
@@ -276,7 +281,7 @@ That means:
 
 1. Get the Firecrawl API key from the environment.
 2. Build a `ScrapeConfig` object.
-3. Choose which scraping client to use.
+3. Build the active Firecrawl browser-session client.
 4. Call the actual scraping pipeline.
 
 The config includes paths like:
@@ -290,9 +295,9 @@ data/scrape_checkpoint.json
 
 It also includes retry settings, request delay, and whether to resume from a checkpoint.
 
-## 5. The Client Is Selected
+## 5. The Browser Session Client Is Built
 
-The CLI chooses the client in:
+The CLI builds the Well Details client in:
 
 ```python
 def _well_details_client_for_command(args, api_key):
@@ -301,23 +306,26 @@ def _well_details_client_for_command(args, api_key):
 The logic is:
 
 ```python
-if not args.no_browser_session:
-    session_id = _active_browser_session_id(args.browser_session_json)
-    if session_id:
-        return FirecrawlBrowserSessionWellDetailsClient(...)
+session_id = _active_browser_session_id(args.browser_session_json)
+if not session_id:
+    raise SystemExit(
+        "No active Firecrawl browser session found. Run `make open-session`, "
+        "complete verification in the live browser, then retry."
+    )
 
-return FirecrawlWellDetailsClient(...)
+return FirecrawlBrowserSessionWellDetailsClient(...)
 ```
 
-This does not mean: Cloudflare failed, so fallback to the direct endpoint.
+This means the scraper has one supported Firecrawl strategy for Well Details pages:
 
-It means: before scraping starts, choose the best available fetch strategy.
+```text
+Use an active Firecrawl browser session.
+Navigate that browser session to each Well Details page.
+Read the browser-visible snapshot.
+Convert the snapshot into parser-friendly HTML.
+```
 
-There are two possible strategies.
-
-### Strategy 1: Use An Existing Live Browser Session
-
-This happens only if this file exists and contains an active session:
+The session ID comes from:
 
 ```text
 data/firecrawl_browser_session.json
@@ -337,33 +345,14 @@ If that session exists, the scraper uses:
 FirecrawlBrowserSessionWellDetailsClient
 ```
 
-That is the stronger option for protected pages because a human may have already completed Cloudflare in that live Firecrawl browser.
+If that session is missing, the normal scrape command stops before the ingestion loop. It does not call Firecrawl's normal `/v2/scrape` endpoint.
 
-### Strategy 2: Use Firecrawl's Normal Scrape Endpoint
-
-If there is no active browser session, the scraper uses:
-
-```python
-FirecrawlWellDetailsClient
-```
-
-That calls Firecrawl's normal `/v2/scrape` endpoint.
-
-This fallback exists because not every run needs a live browser session. If the Firecrawl profile or cookies are already trusted, or if the page is not currently challenging, `/v2/scrape` is simpler operationally.
-
-It can still use a saved Firecrawl profile:
-
-```python
-profile_name=os.environ.get("NM_OCD_FIRECRAWL_PROFILE") or None
-```
-
-So `/v2/scrape` is not necessarily unverified. It can use a saved Firecrawl profile that may already contain cookies or session trust.
-
-The normal path is:
+The required path is:
 
 ```text
-Try to scrape with active browser session if one exists.
-Otherwise, use Firecrawl scrape endpoint with saved profile.
+Open or reuse a Firecrawl browser session.
+Complete Cloudflare or Turnstile verification in the live browser if shown.
+Scrape every Well Details page through that same active browser session.
 ```
 
 This distinction matters for `make ingest` and `make ingest-supervised`.
@@ -374,11 +363,12 @@ This distinction matters for `make ingest` and `make ingest-supervised`.
 make ingest
   -> make scraping
   -> scrape-wells
-  -> choose one client before scraping starts
+  -> require data/firecrawl_browser_session.json
+  -> build FirecrawlBrowserSessionWellDetailsClient
   -> run scrape_wells(...)
 ```
 
-If no active browser session exists, `make ingest` uses `/v2/scrape` first. If `/v2/scrape` returns protected or unusable pages, `make ingest` does not create a live browser session inside that same run. It records the blocked/missing APIs, stops if the incomplete scrape is not allowed, and tells the operator to open and verify a session before retrying.
+If no active browser session exists, `make ingest` stops and tells the operator to run `make open-session`, verify the page, and retry. It does not try a non-browser fallback.
 
 `make ingest-supervised` runs:
 
@@ -386,7 +376,8 @@ If no active browser session exists, `make ingest` uses `/v2/scrape` first. If `
 make ingest-supervised
   -> make scraping-supervised
   -> scrape-wells-supervised
-  -> choose the currently available client
+  -> ensure an active browser session exists
+  -> build FirecrawlBrowserSessionWellDetailsClient
   -> run scrape_wells(...)
   -> if protected/failed pages cause a recoverable stop:
        close stale browser session
@@ -396,14 +387,7 @@ make ingest-supervised
        resume from checkpoint
 ```
 
-So supervised mode also starts by using the currently available client. The difference is what happens after protection appears: supervised mode creates and verifies a live browser session automatically, while normal ingest only reports the problem and exits.
-
-If Cloudflare blocks the `/v2/scrape` result, the parser detects that and raises `ProtectedPageError`. Then the outer pipeline records the API as blocked and may stop after several protected pages.
-
-That is why the workflow says to open and verify a Firecrawl browser session when protection appears.
-
-That means Strategy 2 is not a Cloudflare bypass. It is a convenience fallback for cases where the saved profile is already trusted enough or the site is not challenging. For consistently protected pages, you probably need an active browser session path, or the CLI should fail fast and tell the user to run open-session / supervised mode instead of trying normal /v2/scrape.
-
+So supervised mode starts by making sure the one supported strategy is available. The difference is what happens after protection appears: supervised mode creates and verifies a live browser session automatically, while normal ingest reports the problem and exits.
 
 ## 6. The Actual Scraping Loop Starts
 
@@ -508,15 +492,17 @@ parsed_record = parse_well_details_html(html_text, expected_api=api_number)
 normalized = normalize_record(parsed_record)
 ```
 
-That means `_scrape_one_api()` does not know whether the page came from:
+That means `_scrape_one_api()` does not know how the page content was fetched. In production, it comes from:
 
-- Firecrawl `/v2/scrape`
 - a Firecrawl browser session
+
+In tests, it can also come from:
+
 - a fake test client
 
 It only knows: I have a client with a `scrape_html(url)` method.
 
-That keeps the pipeline clean. The scraping pipeline does not care how the HTML is fetched.
+That keeps the pipeline clean. The scraping pipeline does not need to know the Firecrawl browser-session details.
 
 ## 9. Max Retries
 
@@ -549,7 +535,7 @@ So for one API number, the scraper may try up to three times.
 
 It retries errors like:
 
-- Firecrawl request failed
+- Firecrawl browser request failed
 - browser session failed
 - parser failed
 - bad or invalid values
@@ -604,32 +590,13 @@ So max retries does not automatically kill the whole scrape. It means: this one 
 
 ## 10. Firecrawl Fetches The Page
 
-If using the normal client, the fetch happens in:
+The production fetch happens in:
 
 ```python
-FirecrawlWellDetailsClient.scrape_html()
+FirecrawlBrowserSessionWellDetailsClient.scrape_html()
 ```
 
-This builds a POST request to Firecrawl:
-
-```python
-payload = {
-    "url": url,
-    "formats": ["html", "rawHtml"],
-    "onlyMainContent": False,
-    ...
-}
-```
-
-Then it sends that to:
-
-```text
-https://api.firecrawl.dev/v2/scrape
-```
-
-Firecrawl loads the official NM OCD page and returns HTML.
-
-If using the browser-session client, it instead navigates an active browser session and gets a page snapshot.
+That client tells the active Firecrawl browser session to navigate to the official NM OCD page and return a page snapshot. It does not call Firecrawl's normal `/v2/scrape` endpoint for Well Details pages.
 
 ## 11. What Is A Snapshot?
 
@@ -698,20 +665,15 @@ parsed_record = parse_well_details_html(html_text, expected_api=api_number)
 
 That means `_scrape_one_api()` always sees the same shape: a string called `html_text`.
 
-What changes is where that string came from:
+In production, that string comes from the live browser-session path:
 
 ```text
-Normal /v2/scrape client:
-  Firecrawl returns real page HTML
-  -> parse_well_details_html(real_html)
-
-Live browser-session client:
-  Firecrawl returns a browser snapshot
-  -> well_details_snapshot_to_html(snapshot)
-  -> parse_well_details_html(synthetic_html)
+Firecrawl browser session returns a browser snapshot
+-> well_details_snapshot_to_html(snapshot)
+-> parse_well_details_html(synthetic_html)
 ```
 
-So `parse_well_details_html(...)` is used in both paths. It parses either real HTML from `/v2/scrape` or synthetic HTML created from a live browser snapshot.
+So `parse_well_details_html(...)` still receives HTML, but for real scraping that HTML is synthetic parser-friendly markup created from the live browser snapshot.
 
 The NM OCD page displays most values as label/value pairs. In the raw HTML, those pairs look roughly like this:
 
@@ -762,7 +724,7 @@ Some fields have extra parsing:
 - `Lat / Long` is split into `Latitude`, `Longitude`, and optional `CRS`.
 - `API` is extracted from a hidden `id="API"` input when present, or from an API-looking value in the page text. If neither is found, the scraper uses the `expected_api` passed in from the input CSV.
 
-If the page came from a live browser session, the client first converts the browser snapshot into simple parser-friendly HTML with the same label/value shape. That is why the same `parse_well_details_html()` function can handle both normal Firecrawl HTML and live-browser snapshot results.
+The browser-session client first converts the browser snapshot into simple parser-friendly HTML with the same label/value shape. That is why the existing `parse_well_details_html()` function can keep handling the field extraction.
 
 The helper `_snapshot_label_values(...)` is only used inside the browser-session conversion path:
 
@@ -812,62 +774,11 @@ The report summarizes scrape status: how many requested, scraped, missing, block
 
 ## 14. Firecrawl's Role In The Process
 
-Firecrawl is the remote scraping and browser layer.
+Firecrawl is the remote browser layer.
 
 The Python app does not directly visit the NM OCD website with `requests`, Selenium, or local Chrome. Instead, the app asks Firecrawl to do that work.
 
-Firecrawl has two roles here, matching the two fetch strategies chosen in `commands.py`.
-
-### Role 1: Normal Scrape Endpoint
-
-This role is used by Strategy 2 from the client-selection step:
-
-```text
-No active browser session exists
-  -> use FirecrawlWellDetailsClient
-  -> call Firecrawl /v2/scrape
-```
-
-In code, this is the fallback client:
-
-```python
-FirecrawlWellDetailsClient(
-    api_key=api_key,
-    profile_name=os.environ.get("NM_OCD_FIRECRAWL_PROFILE") or None,
-    endpoint=_firecrawl_endpoint(),
-    proxy=os.environ.get("NM_OCD_FIRECRAWL_PROXY", "auto"),
-)
-```
-
-`FirecrawlWellDetailsClient` sends a POST request to:
-
-```text
-https://api.firecrawl.dev/v2/scrape
-```
-
-with a payload like:
-
-```python
-{
-    "url": official_well_details_url,
-    "formats": ["html", "rawHtml"],
-    "onlyMainContent": False,
-    "headers": {...},
-    "profile": {"name": profile_name, "saveChanges": True}
-}
-```
-
-Firecrawl loads the official page and returns HTML. The app then sends that HTML to:
-
-```python
-parse_well_details_html(html_text, expected_api=api_number)
-```
-
-This role is simpler, but it depends on `/v2/scrape` being able to reach real Well Details HTML. If Cloudflare returns a challenge page instead, the parser raises `ProtectedPageError`.
-
-### Role 2: Live Browser Session
-
-This role is used by Strategy 1 from the client-selection step:
+Firecrawl has one role here: provide a live remote browser session that the Python scraper can drive.
 
 ```text
 Active browser session exists
@@ -875,7 +786,7 @@ Active browser session exists
   -> navigate inside the already-open Firecrawl browser
 ```
 
-`FirecrawlBrowserClient` can create a remote browser session:
+`FirecrawlBrowserClient` creates a remote browser session:
 
 ```text
 POST /v2/browser
@@ -911,20 +822,13 @@ well_details_snapshot_to_html(snapshot)
 
 After that conversion, the same parser can extract the fields.
 
-So the strategy mapping is:
 
 ```text
-Strategy 1: active browser session
+Strategy: active browser session
   Firecrawl role: remote live browser
   Python client: FirecrawlBrowserSessionWellDetailsClient
   Firecrawl APIs used: /v2/browser and /v2/browser/{session_id}/execute
   Returned content: browser-visible snapshot converted to HTML
-
-Strategy 2: normal scrape endpoint
-  Firecrawl role: single-page scrape service
-  Python client: FirecrawlWellDetailsClient
-  Firecrawl API used: /v2/scrape
-  Returned content: raw HTML / HTML
 ```
 
 So Firecrawl is doing the external-web work:
@@ -933,13 +837,13 @@ So Firecrawl is doing the external-web work:
 - using a browser-like environment
 - keeping a persistent profile and cookies
 - giving a human a live verification window
-- returning either raw HTML or browser-visible text back to Python
+- returning browser-visible text back to Python
 
 Your local app is doing the data pipeline work:
 
 - deciding which APIs to scrape
 - building Well Details URLs
-- choosing the Firecrawl strategy
+- requiring an active Firecrawl browser session
 - parsing returned content
 - normalizing records
 - writing CSV, checkpoint, and report files
@@ -949,12 +853,12 @@ The cleanest summary is:
 
 ```text
 Python controls the scrape.
-Firecrawl fetches the web page.
+Firecrawl runs the live browser session.
 Parser extracts data.
 Ingestion writes durable outputs.
 ```
 
-Firecrawl is not the parser and not the database layer. It is the remote browser and scraping engine that gets page content into the Python pipeline.
+Firecrawl is not the parser and not the database layer. It is the remote browser layer that gets visible page content into the Python pipeline.
 
 ## Full Flow Summary
 
@@ -966,7 +870,8 @@ make scraping
   -> app/cli/commands.py parses CLI command
   -> scrape_wells_command()
   -> builds ScrapeConfig
-  -> chooses Firecrawl client
+  -> requires active Firecrawl browser session
+  -> builds FirecrawlBrowserSessionWellDetailsClient
   -> app/services/ingestion.py scrape_wells()
   -> reads API CSV
   -> reads checkpoint
@@ -974,7 +879,7 @@ make scraping
   -> builds WellDetails.aspx URL
   -> _scrape_one_api()
   -> client.scrape_html(url)
-  -> Firecrawl fetches page or browser snapshot
+  -> Firecrawl browser session opens page and returns snapshot
   -> parser extracts fields
   -> normalize_record()
   -> write CSV, checkpoint, and report
