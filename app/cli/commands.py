@@ -321,6 +321,7 @@ def scrape_wells_supervised_command(args: argparse.Namespace) -> None:
             )
 
         refresh_count += 1
+        # The idea is to open the browser on the pages that actually represents the problem.
         verification_api = _verification_api_from_report(report, args.api_csv)
         print(
             "Protected or failed pages detected. Starting supervised recovery "
