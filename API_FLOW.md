@@ -1,10 +1,5 @@
 # SynMax API Flow
 
-This document explains the runtime API flow for this project. It focuses only
-on how the public APIs behave: routes, validation, request normalization,
-response caching, polygon search behavior, and why the API depends on
-normalized/repaired data.
-
 The API is a read-only FastAPI service. Runtime requests do not create or
 modify well records. A request comes in, gets validated, may be normalized,
 queries the configured data source through the service/repository layers, and
@@ -99,36 +94,19 @@ GET /health
   -> return {"status": "ok", "database": "connected"}
 ```
 
-Success response:
-
-```json
-{
-  "status": "ok",
-  "database": "connected"
-}
-```
-
 Possible error:
 
 ```text
 503 Service Unavailable
 ```
 
-This happens if the configured data source is unavailable. This endpoint does
-not return well data and does not use the JSON ETag helper because it is a
-readiness check, not a cacheable data response.
+This happens if the configured data source is unavailable.
 
 ## Route: GET /well/{api_number}
 
 Main file: `app/api/routes/wells.py`
 
 Purpose: return a single well record by API number.
-
-Example request:
-
-```text
-GET /well/30-015-25325
-```
 
 The route function is:
 
@@ -333,6 +311,11 @@ The cached function is:
 def _cached_get_well(database_path, database_mtime_ns, normalized_api):
 ```
 
+The cache is checked when Python calls `_cached_get_well(...)`. If the same
+arguments were seen before, `@lru_cache` returns the saved result immediately.
+In that case, the function body does not run, so SQLite is not opened and
+`get_well(...)` is not called again.
+
 The cache key is effectively:
 
 ```text
@@ -350,6 +333,9 @@ normalized API: 3001525325
 If another request asks for the same API number and the database file has not
 changed, Python can return the cached result without opening and querying the
 data source again.
+
+Here, "database file changed" means the SQLite file's modified timestamp
+changed on disk, usually after a new ingest/load updates `api_well_data.db`.
 
 Request 1:
 
@@ -578,14 +564,14 @@ points cannot contain empty coordinate pairs
 each coordinate pair must be lat,lon
 latitude and longitude must be numeric
 latitude and longitude must be finite
-latitude must be between -90 and 90
-longitude must be between -180 and 180
-at least three distinct coordinate pairs are required
-polygon is automatically closed if needed
-polygon cannot be empty
-polygon must be geometrically valid
-polygon cannot have zero area
-polygon cannot be self-intersecting
+latitude must be between -90 and 90 (valid Earth latitude limits)
+longitude must be between -180 and 180 (valid Earth longitude limits)
+at least three distinct coordinate pairs are required (fewer points cannot form an area)
+polygon is automatically closed if needed (geometry libraries expect the last point to return to the first point)
+polygon cannot be empty (there would be no area to search)
+polygon must be geometrically valid (invalid shapes can produce unreliable contains/intersects results)
+polygon cannot have zero area (a line or point is not a searchable polygon area)
+polygon cannot be self-intersecting (crossing edges make inside/outside ambiguous)
 ```
 
 Invalid examples:
@@ -638,6 +624,13 @@ This conversion happens when creating the polygon and when checking each well
 point.
 
 ## Polygon Auto-Closing
+
+This happens in `app/utils/geo.py`, inside `parse_polygon_points(...)`:
+
+```python
+if coordinates[0] != coordinates[-1]:
+    closed_coordinates = (*coordinates, coordinates[0])
+```
 
 A polygon should start and end at the same coordinate. The API does not require
 the user to repeat the first coordinate manually.
@@ -698,6 +691,27 @@ The service uses a two-step search:
 ```
 
 ### Step 1: Bounding-Box Candidate Search
+
+This starts in `app/services/well_queries.py`, inside
+`_cached_polygon_api_numbers(...)`:
+
+```python
+candidates = iter_wells_in_bounds(
+    connection,
+    parsed_polygon.min_latitude,
+    parsed_polygon.max_latitude,
+    parsed_polygon.min_longitude,
+    parsed_polygon.max_longitude,
+)
+```
+
+The actual SQL filtering happens in `app/repositories/wells.py`, inside
+`iter_wells_in_bounds(...)`:
+
+```sql
+AND Latitude BETWEEN ? AND ?
+AND Longitude BETWEEN ? AND ?
+```
 
 After parsing the polygon, the service knows:
 
@@ -953,151 +967,8 @@ same hash.
 
 Main file: `app/utils/normalize.py`
 
-The runtime API depends on clean, predictable records. Without normalized and
-repaired data, API responses would be inconsistent, hard to validate, and
-harder for clients to consume.
-
-The API response for `/well/{api_number}` is expected to have a stable shape:
-
-```text
-Operator
-Status
-Well Type
-Work Type
-Directional Status
-Multi-Lateral
-Mineral Owner
-Surface Owner
-Surface Location
-GL Elevation
-KB Elevation
-DF Elevation
-Single/Multiple Completion
-Potash Waiver
-Spud Date
-Last Inspection
-TVD
-API
-Latitude
-Longitude
-CRS
-```
-
-However, source data can be inconsistent:
-
-```text
-One source may say "Current Operator"; the API should return "Operator".
-One source may say "Type"; the API should return "Well Type".
-One source may say "Direction"; the API should return "Directional Status".
-Numeric fields may arrive as strings like "10,250" or "3210.0".
-Empty strings should become null-like values, not empty text.
-Latitude and longitude must be numeric for polygon search.
-Dates can be embedded inside longer text.
-Some fields can accidentally include neighboring labels or values.
-```
-
-Repair is needed because the API should not expose these source irregularities
-directly to clients.
-
-## API-Specific Reasons For Repair
-
-### 1. Stable Response Shape
-
-Clients should not have to guess whether the operator field is called:
-
-```text
-Operator
-Current Operator
-operator
-```
-
-The API returns one consistent field:
-
-```text
-Operator
-```
-
-This makes the API easier to consume from frontend code, scripts, dashboards,
-or tests.
-
-### 2. Correct Types
-
-The API should return numeric values as numbers when possible.
-
-Examples:
-
-```text
-"10,250" -> 10250
-"32.75"  -> 32.75
-""       -> None
-```
-
-This matters especially for:
-
-```text
-Latitude
-Longitude
-GL Elevation
-KB Elevation
-DF Elevation
-TVD
-```
-
-The polygon endpoint depends on `Latitude` and `Longitude` being usable numeric
-values.
-
-### 3. Reliable API Number Lookup
-
-The `/well/{api_number}` route normalizes the user's API number to digit-only.
-
-For lookup to work, stored API values also need to be digit-only.
-
-Example:
-
-```text
-request path: /well/30-015-25325
-normalized request key: 3001525325
-stored API must also be: 3001525325
-```
-
-If stored records used mixed formats, the same well could be missed.
-
-### 4. Cleaner Yes/No Fields
-
-Some fields, such as `Potash Waiver`, are expected to be simple values like:
-
-```text
-Yes
-No
-```
-
 But source text can include long neighboring content. Repair extracts the
 useful yes/no value when possible and avoids storing unrelated label text.
-
-### 5. Safer Date Fields
-
-Date fields can accidentally include dates from nearby labels. For example,
-`Last Inspection` might contain text that includes another date from a different
-field.
-
-Repair avoids turning an unrelated neighboring date into the official
-`Last Inspection` value.
-
-### 6. Better Polygon Behavior
-
-The polygon API can only include wells that have valid numeric coordinates.
-
-If latitude or longitude is not repaired/coerced properly, the well cannot be
-reliably checked against a polygon.
-
-Clean coordinates make this flow possible:
-
-```text
-Latitude/Longitude from data
-  -> numeric point
-  -> Shapely polygon check
-  -> include or exclude API number
-```
 
 ## Runtime Normalization Versus Data Repair
 
