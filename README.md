@@ -18,13 +18,12 @@ https://youtu.be/-YSpJCbuyZA
 
 ![Logo](https://rafael-valdez-public.s3.us-east-1.amazonaws.com/Well_Data_Pipeline_Architecture.png)
 
-Firecrawl is a web data platform that can load JavaScript-rendered pages,
-return page HTML, and run managed browser sessions through an API. In this
-project it acts as the scraping and browser automation layer between the Python
-code and the official NM OCD website. Because the NM OCD pages can present
-Cloudflare or Turnstile protection, the practical scrape workflow uses a live
+Firecrawl is a web data platform that can run managed browser sessions through
+an API. In this project it acts as the browser automation layer between the
+Python code and the official NM OCD website. Because the NM OCD pages can
+present Cloudflare or Turnstile protection, the scrape workflow uses a live
 Firecrawl browser session so a human can complete verification and the scraper
-can continue from the verified session/profile.
+can continue from the verified session.
 
 ## What This Repository Contains
 
@@ -56,7 +55,7 @@ Runtime:
 - Uvicorn
 - Pydantic
 - Shapely
-- Firecrawl REST API for scraping and browser sessions
+- Firecrawl REST API for browser sessions
 
 Developer tooling:
 
@@ -130,10 +129,11 @@ not have `python3.11`, install Python 3.11+ first or use the available Python
    make load-db
    ```
 
-   If you do not have that CSV yet, generate it first and then load the database:
+   If you do not have that CSV yet, generate it with a verified browser session
+   first and then load the database:
 
    ```bash
-   make ingest
+   make ingest-supervised
    ```
 
    If the official site shows protection or the scrape stops on protected
@@ -170,7 +170,7 @@ http://127.0.0.1:8000/docs
 | --- | --- |
 | `make start` | Starts Uvicorn with `app.main:app --reload`. |
 | `make open-session` | Creates a live Firecrawl browser session for manual verification. |
-| `make check-session` | Confirms the active session/profile can parse a real Well Details page. |
+| `make check-session` | Confirms the active browser session can parse a real Well Details page. |
 | `make scraping` | Scrapes Well Details pages into `data/api_well_data_scraped.csv`. |
 | `make scraping-supervised` | Scrapes and automatically opens new supervised sessions when protection blocks progress. |
 | `make load-db` | Recreates and loads `api_well_data.db` from the scraped CSV. |
@@ -241,7 +241,7 @@ and resumes from `data/scrape_checkpoint.json`.
 
 The project is intentionally split into small layers:
 
-1. CLI layer: parses commands, loads `.env`, chooses Firecrawl client strategy,
+1. CLI layer: parses commands, loads `.env`, builds the Firecrawl browser client,
    and starts scrape/load operations.
 2. Scraping layer: fetches `WellDetails.aspx`, detects protected pages, retries
    failures, writes checkpoint/report/CSV outputs, and resumes safely.
@@ -297,12 +297,8 @@ flowchart TD
 The Firecrawl code lives in `app/services/well_details/clients.py`, with CLI
 orchestration in `app/cli/commands.py`.
 
-There are three client classes:
+There are two client classes:
 
-- `FirecrawlWellDetailsClient` calls `POST https://api.firecrawl.dev/v2/scrape`.
-  It requests `html` and `rawHtml`, disables main-content-only extraction, sends
-  a browser-like user agent, waits for the page, disables Firecrawl cache storage,
-  and optionally attaches a named profile with `saveChanges: true`.
 - `FirecrawlBrowserClient` calls the Firecrawl browser endpoints. It creates a
   browser session, executes Node or bash browser commands, and closes the
   session.
@@ -310,26 +306,24 @@ There are three client classes:
   session. It runs `agent-browser open <url>`, waits, captures an accessibility
   snapshot, and converts that snapshot into parser-friendly HTML.
 
-The CLI chooses the browser-session client first when
-`data/firecrawl_browser_session.json` exists and is not marked closed. If there
-is no active session, it falls back to `/v2/scrape` with the configured
-`NM_OCD_FIRECRAWL_PROFILE`.
+The CLI requires `data/firecrawl_browser_session.json` to point to an active
+browser session before scraping. There is no direct `/v2/scrape` fallback for
+Well Details pages.
 
 ### Why A Browser Session Is Needed
 
 The official NM OCD site can return Cloudflare or Turnstile protection instead
-of well data. A normal scrape may receive a challenge page such as "Just a
-moment" or "Verification Failed". The project does not try to bypass that
-challenge in code. Instead, it opens a Firecrawl live browser session so a human
-can complete the verification step. Once the real Well Details page is visible,
-the scraper can use that same browser session or saved Firecrawl profile state.
+of well data. The project does not try to bypass that challenge in code.
+Instead, it opens a Firecrawl live browser session so a human can complete the
+verification step. Once the real Well Details page is visible, the scraper uses
+that same active browser session.
 
 The important pieces are:
 
 - `NM_OCD_FIRECRAWL_PROFILE` names the persistent Firecrawl profile that can
   retain cookies/session state.
 - `make open-session` creates a live browser session using that profile.
-- `make check-session` verifies that the active session/profile returns actual
+- `make check-session` verifies that the active browser session returns actual
   Well Details data and that the parser can extract fields.
 - `make close-session` closes the session so Firecrawl can save profile changes.
 
@@ -430,11 +424,10 @@ Data quality depends on the official page. The scraper records
 missing values as `null` instead of inventing data. Use `scrape_report.json` and
 its `remaining_null_columns` section to see where source data is sparse.
 
-The parser explicitly treats protection-only pages as failures. If the page
-contains Cloudflare, Turnstile, "Just a moment", "Verification Failed", or
-"Please use our official API instead of scraping this page" without real well
-data, the scraper raises `ProtectedPageError` and records the API under
-`blocked`.
+The browser snapshot converter explicitly treats protection-only snapshots as
+failures. If the snapshot contains a Cloudflare or Turnstile challenge without
+real well data, the scraper raises `ProtectedPageError` and records the API
+under `blocked`.
 
 ## Scraping Failure Modes
 
@@ -442,7 +435,7 @@ Scraping can fail or stop for several reasons:
 
 - Cloudflare or Turnstile returns a challenge page instead of `WellDetails.aspx`
   data.
-- The Firecrawl profile has not been verified yet.
+- The active Firecrawl browser session has not been verified yet.
 - The browser session TTL or inactivity TTL expires.
 - `data/firecrawl_browser_session.json` points to a stale, closed, or invalid
   session.
@@ -460,9 +453,9 @@ Scraping can fail or stop for several reasons:
 These are likely reasons the official site may decide a scrape looks
 untrusted, even when the scraper is adding delays between requests:
 
-- Browser/profile trust, not only timing. Firecrawl `/scrape` may not carry the
-  same verified browser state as the live browser session, or the saved
-  `NM_OCD_FIRECRAWL_PROFILE` cookies/session may have expired.
+- Browser/profile trust, not only timing. The scraper uses the live Firecrawl
+  browser session because saved profile state alone may not carry the same
+  verified browser trust.
 - IP or proxy reputation. `proxy: auto` can rotate through datacenter or proxy
   IPs that the site distrusts, independent of request spacing.
 - Sequential API-number pattern. Scraping many `WellDetails.aspx` URLs in order

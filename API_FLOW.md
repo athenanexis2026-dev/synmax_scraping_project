@@ -5,15 +5,6 @@ startup, routes, validation, normalization, caching, repository access,
 database structure, and the ingestion flow that prepares data before the API
 serves it.
 
-The most important idea is that this project has two big flows:
-
-1. Data preparation flow: scrape -> parse -> normalize -> load SQLite.
-2. Runtime API flow: receive HTTP request -> validate -> normalize request input
-   -> query cached SQLite data -> return cached HTTP response.
-
-The API does not scrape live data when someone calls `/well/...`. It only reads
-already-normalized data from SQLite.
-
 ## High-Level Architecture
 
 ```text
@@ -28,20 +19,6 @@ Client request
   -> read-only SQLite query
   -> response cache helper
   -> JSON response
-```
-
-The background data-preparation flow is separate:
-
-```text
-API CSV
-  -> CLI command
-  -> Firecrawl fetch/browser session
-  -> NM OCD Well Details HTML or browser snapshot
-  -> parser
-  -> normalization
-  -> scraped CSV/checkpoint/report
-  -> load-db
-  -> SQLite api_well_data table
 ```
 
 ## Layer 1: App Startup
@@ -87,10 +64,6 @@ Routes later access the same path through:
 request.app.state.database_path
 ```
 
-This is a clean design because the route functions do not need to read
-environment variables directly. The app is configured once at startup, and all
-routes use the configured state.
-
 ## Layer 2: Route Layer
 
 Main file: `app/api/routes/wells.py`
@@ -126,32 +99,16 @@ client calls /health
   -> returns {"status": "ok", "database": "connected"}
 ```
 
-Success response:
-
-```json
-{
-  "status": "ok",
-  "database": "connected"
-}
-```
 
 Error behavior:
 
 - If the database cannot be opened or queried, the route returns `503`.
-- The route does not return table counts or application metadata. It only checks
-  readiness.
 
 ## Route: GET /well/{api_number}
 
 Main file: `app/api/routes/wells.py`
 
 Purpose: return one well record by API number.
-
-Example:
-
-```text
-GET /well/30-015-25325
-```
 
 Accepted API number formats:
 
@@ -212,15 +169,6 @@ Example:
 
 ```text
 GET /wells/polygon?points=32,-105;33,-105;33,-104;32,-104
-```
-
-The response shape is:
-
-```json
-{
-  "api_numbers": ["3001525325", "3001525326"],
-  "count": 2
-}
 ```
 
 Detailed flow:
