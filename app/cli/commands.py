@@ -9,6 +9,36 @@ import re
 import time
 from pathlib import Path
 
+from app.cli.defaults import (
+    DEFAULT_API_CSV,
+    DEFAULT_BLOCKED_STOP_THRESHOLD,
+    DEFAULT_BROWSER_ACTIVITY_TTL_SECONDS,
+    DEFAULT_BROWSER_SESSION_JSON,
+    DEFAULT_BROWSER_TTL_SECONDS,
+    DEFAULT_BROWSER_WAIT_MS,
+    DEFAULT_DATABASE,
+    DEFAULT_FAILED_STOP_THRESHOLD,
+    DEFAULT_INITIAL_PROFILE_NUMBER,
+    DEFAULT_MAX_RETRIES,
+    DEFAULT_MAX_SESSION_REFRESHES,
+    DEFAULT_PROFILE_PREFIX,
+    DEFAULT_PROTECTED_STOP_THRESHOLD,
+    DEFAULT_REQUEST_DELAY_SECONDS,
+    DEFAULT_RETRY_BACKOFF_SECONDS,
+    DEFAULT_SCRAPE_CHECKPOINT_JSON,
+    DEFAULT_SCRAPE_OUTPUT_CSV,
+    DEFAULT_SCRAPE_REPORT_JSON,
+    DEFAULT_VERIFICATION_CHECK_INTERVAL_SECONDS,
+    DEFAULT_VERIFICATION_TIMEOUT_SECONDS,
+    PROFILE_ENV_KEY,
+    SAFE_INFORMATION_MODAL_SCRIPT,
+    SUPERVISED_BLOCKED_STOP_THRESHOLD,
+    SUPERVISED_FAILED_STOP_THRESHOLD,
+    SUPERVISED_MAX_RETRIES,
+    TERMINAL_GREEN,
+    TERMINAL_RED,
+    TERMINAL_RESET,
+)
 from app.repositories.wells import (
     connect,
     initialize_database,
@@ -232,6 +262,7 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
     config = _scrape_config_from_args(
         args,
         resume=not args.no_resume,
+        blocked_stop_threshold=DEFAULT_PROTECTED_STOP_THRESHOLD,
         failed_stop_threshold=DEFAULT_FAILED_STOP_THRESHOLD,
     )
     client = _well_details_client_for_command(args, api_key)
@@ -246,9 +277,9 @@ def scrape_wells_command(args: argparse.Namespace) -> None:
         print(report["stopped_reason"])
     if not args.allow_incomplete and report["missing_count"] > 0:
         raise SystemExit(
-            "Scrape incomplete. If repeated failed pages triggered protection, "
-            "run `make ingest-supervised`; otherwise refresh the Firecrawl "
-            "browser session and retry `make ingest`."
+            "Scrape incomplete. If security protection was triggered, run "
+            "`make ingest-supervised`; otherwise refresh the Firecrawl browser "
+            "session and retry `make ingest`."
         )
 
 
