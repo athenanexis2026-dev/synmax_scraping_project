@@ -4,11 +4,24 @@ Think of the scraping flow as a chain of handoffs. Each layer has a specific job
 
 - `Makefile` starts the command.
 - `app/cli/__main__.py` makes `python -m app.cli` executable.
-- `app/cli/commands.py` parses CLI arguments, loads environment values, and builds the browser-session scraping client.
+- `app/cli/commands.py` parses CLI arguments, loads environment values, builds config, and builds the browser-session scraping client.
 - `app/services/ingestion.py` owns the scraping loop, retries, checkpointing, and output writing.
-- `app/services/well_details/clients.py` asks Firecrawl to fetch page content.
+- `app/services/well_details/clients.py` asks Firecrawl to fetch page content through a live browser session.
 - `app/services/well_details/parser.py` extracts well fields from the returned content.
 - `app/utils/normalize.py` cleans parsed data into the expected schema.
+
+The short version is:
+
+```text
+Makefile
+  -> CLI command
+  -> command handler builds config/client
+  -> scrape_wells(...)
+  -> Firecrawl browser fetches page content
+  -> parser extracts fields
+  -> normalizer cleans fields
+  -> checkpoint, CSV, and report are written
+```
 
 ## 1. Makefile Starts It
 
@@ -19,29 +32,30 @@ scraping:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli scrape-wells
 ```
 
-When you run:
-
-```bash
-make scraping
-```
-
-the Makefile does three things:
+The Makefile does three things:
 
 1. Loads environment variables from `.env`.
 2. Uses the project virtual environment: `.venv/bin/python`.
 3. Runs the CLI package with the command `scrape-wells`.
 
-The important part is:
+That means:
 
-```bash
-python -m app.cli scrape-wells
+```text
+make scraping
+  -> .venv/bin/python -m app.cli scrape-wells
 ```
 
-That means: run the Python package `app.cli`, and pass it the command `scrape-wells`.
+For the full ingest path:
 
-## 2. CLI Parses The Command
+```makefile
+ingest: scraping load-db
+```
 
-In `commands.py`, `main()` does this:
+`make ingest` runs scraping first. If scraping fails, `load-db` does not run.
+
+## 2. The CLI Parses The Command
+
+In `app/cli/commands.py`, `main()` does this:
 
 ```python
 parser = build_parser()
@@ -52,15 +66,15 @@ args.func(args)
 
 This is the CLI dispatcher.
 
-Parsing command-line arguments means: Python looks at the words that were passed after `python -m app.cli` and turns them into a structured `args` object.
+Parsing command-line arguments means Python looks at the words passed after `python -m app.cli` and turns them into a structured `args` object.
 
-For example, this command:
+For example:
 
 ```bash
 python -m app.cli scrape-wells --max-retries 5 --no-resume
 ```
 
-is just a list of command-line words:
+is read as:
 
 ```text
 scrape-wells
@@ -69,7 +83,7 @@ scrape-wells
 --no-resume
 ```
 
-`argparse` reads those words and builds an object like:
+`argparse` turns that into values like:
 
 ```python
 args.command = "scrape-wells"
@@ -78,46 +92,9 @@ args.no_resume = True
 args.func = scrape_wells_command
 ```
 
-In the real code, `args` is an `argparse.Namespace`. It is similar to a small object where each CLI option becomes an attribute. That is why the code can later write things like:
+If the user does not pass an option, `argparse` fills in the default from `add_argument(...)`.
 
-```python
-args.env_file
-args.api_csv
-args.max_retries
-args.no_resume
-args.func(args)
-```
-
-If the user does not pass an option, `argparse` fills in the default value from `add_argument(...)`. For example, `--max-retries` defaults to the project default when the command does not provide it.
-
-The most important value is:
-
-```python
-args.func
-```
-
-That is how the parser remembers which handler function should run for the selected subcommand.
-
-It:
-
-1. Builds all available CLI commands.
-2. Parses the command-line arguments.
-3. Loads `.env`.
-4. Calls the function attached to the selected command.
-
-Since the Makefile passed:
-
-```bash
-scrape-wells
-```
-
-the selected function becomes:
-
-```python
-scrape_wells_command
-```
-
-That binding happens in `_add_scraping_command()`:
+The command-to-function binding happens in `_add_scraping_command()`:
 
 ```python
 scrape = subparsers.add_parser("scrape-wells", ...)
@@ -125,7 +102,7 @@ _add_scrape_options(scrape)
 scrape.set_defaults(func=scrape_wells_command)
 ```
 
-So the flow is:
+So the flow becomes:
 
 ```text
 make scraping
@@ -135,7 +112,7 @@ make scraping
   -> scrape_wells_command(args)
 ```
 
-So `args` is the bridge between the terminal command and the Python function. The Makefile starts the command, `argparse` turns the command into `args`, and then the selected handler reads settings from `args`.
+`args` is the bridge between the terminal command and the Python function.
 
 ## 3. Two Scrape Commands Exist
 
@@ -153,8 +130,6 @@ scrape_wells(config, client)
 ```
 
 The difference is what happens when protected pages, failed pages, or Cloudflare verification issues appear.
-
-Both commands use the same Firecrawl fetch strategy: an active Firecrawl browser session. There is no direct `/v2/scrape` fallback for Well Details pages.
 
 ### Normal Command: `scrape-wells`
 
@@ -179,7 +154,8 @@ scrape_wells_command(args)
 This command does one scrape pass:
 
 ```text
-Build config
+Get FIRECRAWL_API_KEY
+Build ScrapeConfig
 Build browser-session client
 Run scrape_wells(...)
 Print summary
@@ -192,15 +168,7 @@ If there is no active browser session, this command exits before scraping and te
 No active Firecrawl browser session found. Run `make open-session`, complete verification in the live browser, then retry.
 ```
 
-So `scrape-wells` is the simpler path. It expects `data/firecrawl_browser_session.json` to point at a current verified Firecrawl browser session.
-
-For `make ingest`, this also means the whole ingest process stops before database loading. `make ingest` is defined as:
-
-```makefile
-ingest: scraping load-db
-```
-
-The `scraping` step must succeed before `load-db` runs. If the active browser session is missing, stale, unverified, or blocked, `make` stops and does not run `load-db`.
+So `scrape-wells` expects `data/firecrawl_browser_session.json` to point at a current verified Firecrawl browser session.
 
 ### Supervised Command: `scrape-wells-supervised`
 
@@ -238,7 +206,7 @@ If protected/failed pages caused a recoverable stop:
   resume scraping from the checkpoint
 ```
 
-Supervised mode also uses stricter scrape settings:
+Supervised mode uses stricter scrape settings:
 
 ```text
 blocked_stop_threshold = 1
@@ -248,26 +216,9 @@ max_retries = 1
 
 That means it stops quickly when protection appears, opens a verification path, and then resumes from the checkpoint instead of spending time retrying requests that are likely still blocked.
 
-The practical difference is:
+## 4. Command Handler Builds Config And Client
 
-```text
-scrape-wells:
-  Require an existing active browser session.
-  Try the scrape once through that session.
-  If blocked/incomplete, tell the user what to do next.
-
-scrape-wells-supervised:
-  Ensure an active browser session exists.
-  Try the scrape through that session.
-  If blocked/incomplete in a recoverable way, create a browser session,
-  wait for manual Cloudflare verification, then resume automatically.
-```
-
-## 4. `scrape_wells_command()` Prepares The Scrape
-
-The scrape command's job is setup, not the scraping loop itself.
-
-It does these important things:
+The normal command's setup looks like this:
 
 ```python
 api_key = _required_env("FIRECRAWL_API_KEY")
@@ -293,101 +244,72 @@ data/scrape_report.json
 data/scrape_checkpoint.json
 ```
 
-It also includes retry settings, request delay, and whether to resume from a checkpoint.
+It also includes retry settings, request delay, stop thresholds, and whether to resume from a checkpoint.
 
-## 5. The Browser Session Client Is Built
-
-The CLI builds the Well Details client in:
+The client comes from:
 
 ```python
-def _well_details_client_for_command(args, api_key):
+_well_details_client_for_command(args, api_key)
 ```
 
-The logic is:
+That helper checks `data/firecrawl_browser_session.json` for an active session id. If no active session exists, it exits. If a session exists, it returns:
 
 ```python
-session_id = _active_browser_session_id(args.browser_session_json)
-if not session_id:
-    raise SystemExit(
-        "No active Firecrawl browser session found. Run `make open-session`, "
-        "complete verification in the live browser, then retry."
-    )
-
-return FirecrawlBrowserSessionWellDetailsClient(...)
+FirecrawlBrowserSessionWellDetailsClient(...)
 ```
 
-This means the scraper has one supported Firecrawl strategy for Well Details pages:
+That client has one job: fetch Well Details content through the existing Firecrawl browser session.
 
-```text
-Use an active Firecrawl browser session.
-Navigate that browser session to each Well Details page.
-Read the browser-visible snapshot.
-Convert the snapshot into parser-friendly HTML.
-```
+## 5. Resume Controls Whether The Checkpoint Is Read
 
-The session ID comes from:
-
-```text
-data/firecrawl_browser_session.json
-```
-
-That file is created by:
-
-```bash
-make open-session
-```
-
-or by supervised scraping.
-
-If that session exists, the scraper uses:
+The important line in supervised mode is:
 
 ```python
-FirecrawlBrowserSessionWellDetailsClient
+resume=True if not first_run else not args.no_resume
 ```
 
-If that session is missing, the normal scrape command stops before the ingestion loop. It does not call Firecrawl's normal `/v2/scrape` endpoint.
+That value becomes:
 
-The required path is:
+```python
+config.resume
+```
+
+Then `scrape_wells()` uses it here:
+
+```python
+checkpoint = (
+    _read_checkpoint(config.checkpoint_json)
+    if config.resume
+    else _empty_checkpoint()
+)
+```
+
+So:
 
 ```text
-Open or reuse a Firecrawl browser session.
-Complete Cloudflare or Turnstile verification in the live browser if shown.
-Scrape every Well Details page through that same active browser session.
+config.resume = True
+  -> read data/scrape_checkpoint.json
+  -> skip APIs already completed
+
+config.resume = False
+  -> ignore data/scrape_checkpoint.json
+  -> start with an empty checkpoint
 ```
 
-This distinction matters for `make ingest` and `make ingest-supervised`.
-
-`make ingest` runs:
+On the first supervised run, the user's `--no-resume` flag is respected:
 
 ```text
-make ingest
-  -> make scraping
-  -> scrape-wells
-  -> require data/firecrawl_browser_session.json
-  -> build FirecrawlBrowserSessionWellDetailsClient
-  -> run scrape_wells(...)
+first_run = True
+resume = not args.no_resume
 ```
 
-If no active browser session exists, `make ingest` stops and tells the operator to run `make open-session`, verify the page, and retry. It does not try a non-browser fallback.
-
-`make ingest-supervised` runs:
+After supervised recovery starts, `first_run` becomes false. From then on:
 
 ```text
-make ingest-supervised
-  -> make scraping-supervised
-  -> scrape-wells-supervised
-  -> ensure an active browser session exists
-  -> build FirecrawlBrowserSessionWellDetailsClient
-  -> run scrape_wells(...)
-  -> if protected/failed pages cause a recoverable stop:
-       close stale browser session
-       rotate Firecrawl profile
-       create a new live browser session
-       wait for manual verification
-       resume from checkpoint
+resume = True
 ```
 
-So supervised mode starts by making sure the one supported strategy is available. The difference is what happens after protection appears: supervised mode creates and verifies a live browser session automatically, while normal ingest reports the problem and exits.
+That is important because supervised recovery depends on the checkpoint. If the scraper completes 35 wells, hits a protected page, opens a new browser session, and resumes, the next run must read `data/scrape_checkpoint.json` so it skips those 35 completed wells.
 
 ## 6. The Actual Scraping Loop Starts
 
@@ -399,41 +321,35 @@ def scrape_wells(config, client, ...):
 
 This function is the core pipeline.
 
-It does:
+It starts by reading API numbers and the checkpoint:
 
 ```python
 api_numbers = sorted(read_api_numbers(config.api_csv))
-checkpoint = _read_checkpoint(config.checkpoint_json)
+checkpoint = (
+    _read_checkpoint(config.checkpoint_json)
+    if config.resume
+    else _empty_checkpoint()
+)
 ```
 
-So first it reads the API numbers from:
+`read_api_numbers(...)` reads API numbers from:
 
 ```text
 data/apis_pythondev_test.csv
 ```
 
-Then it checks the checkpoint file so it can skip wells that were already completed.
+It returns a `set`. A set automatically dedupes, which means it removes duplicate API numbers.
 
-The checkpoint is what allows the scraper to resume instead of starting over every time.
-
-The `sorted(...)` call is there because `read_api_numbers(...)` returns a `set`.
-
-A set is useful because it automatically removes duplicate API numbers from the CSV. But a set does not preserve a reliable order. Without sorting, the scraper could visit APIs in an unpredictable order.
-
-So this line does two things:
-
-```python
-api_numbers = sorted(read_api_numbers(config.api_csv))
-```
+The `sorted(...)` call makes the scrape order stable and repeatable:
 
 ```text
 read_api_numbers(...) -> read and dedupe API numbers
 sorted(...)           -> make the scrape order stable and repeatable
 ```
 
-That stable order makes checkpoint resumes, CSV output, progress messages, and reports easier to understand. The scraper is not trying to prioritize smaller API numbers. It is mainly choosing a deterministic order.
+That stable order makes checkpoint resumes, CSV output, progress messages, and reports easier to understand.
 
-## 7. For Each API Number, Build A URL
+## 7. Each API Becomes One Well Details URL
 
 Inside the loop:
 
@@ -441,7 +357,14 @@ Inside the loop:
 for index, api_number in enumerate(api_numbers):
 ```
 
-For each API number, it builds the official Well Details URL:
+If the API is already in the checkpoint's completed records, the scraper skips it:
+
+```python
+if api_number in checkpoint["completed"]:
+    continue
+```
+
+For each remaining API number, the scraper builds the official Well Details URL:
 
 ```python
 url = build_well_details_url(api_number)
@@ -453,9 +376,11 @@ That function turns an API number into a URL like:
 https://wwwapps.emnrd.nm.gov/OCD/OCDPermitting/Data/WellDetails.aspx?api=30-...
 ```
 
+Then the loop asks `_scrape_one_api(...)` to handle that one well.
+
 ## 8. One API Is Scraped With `_scrape_one_api()`
 
-Then the loop calls:
+The call looks like this:
 
 ```python
 record = _scrape_one_api(api_number, url, client, ...)
@@ -492,103 +417,22 @@ parsed_record = parse_well_details_html(html_text, expected_api=api_number)
 normalized = normalize_record(parsed_record)
 ```
 
-That means `_scrape_one_api()` does not know how the page content was fetched. In production, it comes from:
-
-- a Firecrawl browser session
-
-In tests, it can also come from:
-
-- a fake test client
-
-It only knows: I have a client with a `scrape_html(url)` method.
-
-That keeps the pipeline clean. The scraping pipeline does not need to know the Firecrawl browser-session details.
-
-## 9. Max Retries
-
-The retry logic is inside `_scrape_one_api()`.
-
-The loop looks like:
-
-```python
-for attempt in range(1, config.max_retries + 1):
-    try:
-        html_text = client.scrape_html(url)
-        parsed_record = parse_well_details_html(html_text, expected_api=api_number)
-        normalized = normalize_record(parsed_record)
-        return normalized
-    except ProtectedPageError:
-        raise
-    except (...other errors...) as error:
-        last_error = error
-        if attempt < config.max_retries:
-            sleeper(config.retry_backoff_seconds * attempt)
-```
-
-The default max retries is:
-
-```python
-DEFAULT_MAX_RETRIES = 3
-```
-
-So for one API number, the scraper may try up to three times.
-
-It retries errors like:
-
-- Firecrawl browser request failed
-- browser session failed
-- parser failed
-- bad or invalid values
-
-It does not retry `ProtectedPageError` inside `_scrape_one_api()`. Protection is treated differently because Cloudflare or Turnstile usually will not be fixed by immediately trying the same request again.
-
-When a protected page is hit, `_scrape_one_api()` raises `ProtectedPageError` immediately. The outer `scrape_wells()` loop catches it, records that API under `blocked` in the checkpoint, writes the checkpoint/CSV/report files, and increments the consecutive blocked-page count.
-
-For normal `make ingest`, the default blocked stop threshold is:
-
-```python
-DEFAULT_BLOCKED_STOP_THRESHOLD = 3
-```
-
-So normal ingest does not necessarily stop on the first protected page. It stops when the scraper sees three protected pages in a row, unless that threshold was changed by CLI options or config.
-
-For supervised ingest, the threshold is stricter:
-
-```python
-SUPERVISED_BLOCKED_STOP_THRESHOLD = 1
-```
-
-That is why `make ingest-supervised` stops quickly, opens a browser verification flow, and then resumes from the checkpoint.
-
-Once normal `make ingest` stops because of protection, `scrape-wells` exits incomplete. Since `make ingest` depends on the `scraping` target finishing successfully before `load-db`, the database load step does not run.
-
-If max retries is reached, this line runs:
-
-```python
-raise FirecrawlScrapeError(
-    f"Failed after {config.max_retries} attempts: {last_error}"
-)
-```
-
-Then the outer `scrape_wells()` function catches that failure and records it in the checkpoint:
-
-```python
-checkpoint["failures"][api_number] = {"url": url, "reason": str(error)}
-```
-
-After that, the scraper writes the current state to:
+That means:
 
 ```text
-data/scrape_checkpoint.json
-data/api_well_data_scraped.csv
-data/scrape_report.json
+client.scrape_html(url)
+  -> fetch page content
+
+parse_well_details_html(...)
+  -> extract well fields from the page content
+
+normalize_record(...)
+  -> clean the fields into the expected output schema
 ```
 
-Then it may continue to the next API, unless a configured failure threshold says to stop.
+`_scrape_one_api()` does not need to know how the page content was fetched. In production, it comes from a Firecrawl browser session. In tests, it can come from a fake client. The ingestion pipeline only requires a client with a `scrape_html(url)` method.
 
-So max retries does not automatically kill the whole scrape. It means: this one API failed after enough attempts; record it as failed.
-
-## 10. Firecrawl Fetches The Page
+## 9. Firecrawl Fetches The Page
 
 The production fetch happens in:
 
@@ -598,17 +442,13 @@ FirecrawlBrowserSessionWellDetailsClient.scrape_html()
 
 That client tells the active Firecrawl browser session to navigate to the official NM OCD page and return a page snapshot. It does not call Firecrawl's normal `/v2/scrape` endpoint for Well Details pages.
 
-## 11. What Is A Snapshot?
-
-When using the browser-session client, the code runs this command inside the Firecrawl browser session:
+The command it runs inside the Firecrawl browser session is:
 
 ```bash
 agent-browser open <url> && sleep ... && agent-browser snapshot
 ```
 
-A snapshot is not raw HTML.
-
-It is a text representation of what the browser can see on the page, often similar to an accessibility tree. It contains visible page elements like headings, labels, links, and text.
+A snapshot is not raw HTML. It is a text representation of what the browser can see on the page, often similar to an accessibility tree. It contains visible page elements like headings, labels, links, and text.
 
 For example, instead of raw HTML like:
 
@@ -633,44 +473,24 @@ The browser-session client then converts that snapshot back into parser-friendly
 well_details_snapshot_to_html(snapshot)
 ```
 
-So the flow for browser session is:
+That lets the project reuse the same parser path.
 
-```text
-Open page in live Firecrawl browser
-Wait a few seconds
-Take accessibility/visible-text snapshot
-Extract labels and values from the snapshot
-Convert those labels/values into simple HTML
-Pass that HTML into the normal parser
-```
-
-That lets the project reuse the same parser path as much as possible.
-
-## 12. Parser Extracts Well Details
+## 10. Parser Extracts Well Details
 
 Once HTML comes back, parsing happens in:
 
 ```python
-parse_well_details_html(html_text, expected_api=None)
+parse_well_details_html(html_text, expected_api=api_number)
 ```
 
 The parser does not extract fields from a JSON API response. It reads them from the Well Details page markup.
 
-`parse_well_details_html(...)` is the main parser used by the ingestion pipeline. `_scrape_one_api()` calls it after every client fetch:
-
-```python
-html_text = client.scrape_html(url)
-parsed_record = parse_well_details_html(html_text, expected_api=api_number)
-```
-
-That means `_scrape_one_api()` always sees the same shape: a string called `html_text`.
-
-In production, that string comes from the live browser-session path:
+In production, the flow is:
 
 ```text
 Firecrawl browser session returns a browser snapshot
--> well_details_snapshot_to_html(snapshot)
--> parse_well_details_html(synthetic_html)
+  -> well_details_snapshot_to_html(snapshot)
+  -> parse_well_details_html(synthetic_html)
 ```
 
 So `parse_well_details_html(...)` still receives HTML, but for real scraping that HTML is synthetic parser-friendly markup created from the live browser snapshot.
@@ -688,8 +508,6 @@ The parser uses `_LabelValueParser` to scan the HTML for:
 span.fw-bold   -> field label
 span.text-mute -> field value
 ```
-
-So the source of most fields is the visible "General Well Information" style content on the Well Details page itself.
 
 Then `LABEL_TO_COLUMN` maps page labels into output column names. For example:
 
@@ -724,8 +542,6 @@ Some fields have extra parsing:
 - `Lat / Long` is split into `Latitude`, `Longitude`, and optional `CRS`.
 - `API` is extracted from a hidden `id="API"` input when present, or from an API-looking value in the page text. If neither is found, the scraper uses the `expected_api` passed in from the input CSV.
 
-The browser-session client first converts the browser snapshot into simple parser-friendly HTML with the same label/value shape. That is why the existing `parse_well_details_html()` function can keep handling the field extraction.
-
 The helper `_snapshot_label_values(...)` is only used inside the browser-session conversion path:
 
 ```text
@@ -739,18 +555,38 @@ FirecrawlBrowserSessionWellDetailsClient.scrape_html(...)
 
 Its job is not to parse normal HTML. Its job is to read the visible text from the browser snapshot, find the "General Well Information" section, collect recognized labels such as `Operator`, `Status`, and `Lat / Long`, stop before the `History` section, and return label/value groups.
 
-Then `well_details_snapshot_to_html(...)` turns those groups into small HTML blocks that look like the normal NM OCD label/value markup:
+`parse_well_details_html(...)` also checks whether the page is protected by Cloudflare or returned a "do not scrape" style page. If so, it raises `ProtectedPageError`.
 
-```html
-<span class="fw-bold">Operator:</span>
-<span class="text-mute">Example Operator</span>
+## 11. Normalize The Parsed Record
+
+After parsing:
+
+```python
+normalized = normalize_record(parsed_record)
 ```
 
-After that, `parse_well_details_html(...)` can reuse the normal `_LabelValueParser` logic.
+Parsing extracts data from the page. Normalizing makes the data match the project's expected CSV/database shape.
 
-It also checks whether the page is protected by Cloudflare or returned a "do not scrape" style page. If so, it raises `ProtectedPageError`.
+Normalization handles things like:
 
-## 13. Results Are Written
+- cleaning whitespace
+- converting empty values into consistent empty/null values
+- keeping only expected output columns
+- making the scraped record compatible with the later database load step
+
+So the single-record flow is:
+
+```text
+URL
+  -> client.scrape_html(url)
+  -> raw/synthetic page HTML
+  -> parse_well_details_html(...)
+  -> parsed well fields
+  -> normalize_record(...)
+  -> clean output row
+```
+
+## 12. Results Are Written
 
 After each API is handled, `scrape_wells()` persists output:
 
@@ -766,17 +602,13 @@ data/api_well_data_scraped.csv
 data/scrape_report.json
 ```
 
-The CSV is the main scraped output.
+The checkpoint stores completed, blocked, and failed APIs. The CSV stores completed normalized records. The report stores a summary of what happened, including counts and any missing APIs.
 
-The checkpoint tracks completed, blocked, and failed APIs.
+If a protected page is detected, the report can include a `stopped_reason`. Supervised mode uses that report to decide whether to rotate the Firecrawl profile and open a new browser verification session.
 
-The report summarizes scrape status: how many requested, scraped, missing, blocked, failed, and so on.
-
-## 14. Firecrawl's Role In The Process
+## 13. Firecrawl's Role In The Process
 
 Firecrawl is the remote browser layer.
-
-The Python app does not directly visit the NM OCD website with `requests`, Selenium, or local Chrome. Instead, the app asks Firecrawl to do that work.
 
 Firecrawl has one role here: provide a live remote browser session that the Python scraper can drive.
 
@@ -786,13 +618,7 @@ Active browser session exists
   -> navigate inside the already-open Firecrawl browser
 ```
 
-`FirecrawlBrowserClient` creates a remote browser session:
-
-```text
-POST /v2/browser
-```
-
-That session gives you an interactive URL. A human can open it and complete Cloudflare or Turnstile if needed.
+`FirecrawlBrowserClient` creates a remote browser session. That session gives you an interactive URL. A human can open it and complete Cloudflare or Turnstile if needed.
 
 Then the scraper can reuse that same session with:
 
@@ -800,38 +626,7 @@ Then the scraper can reuse that same session with:
 FirecrawlBrowserSessionWellDetailsClient
 ```
 
-That client does not call `/v2/scrape` for each page. Instead, it tells the live browser session:
-
-```text
-open this Well Details URL
-wait
-give me a snapshot of what is visible
-```
-
-In code, that client runs a browser command like:
-
-```bash
-agent-browser open <url> && sleep ... && agent-browser snapshot
-```
-
-Then the browser snapshot is converted into parser-friendly HTML:
-
-```python
-well_details_snapshot_to_html(snapshot)
-```
-
-After that conversion, the same parser can extract the fields.
-
-
-```text
-Strategy: active browser session
-  Firecrawl role: remote live browser
-  Python client: FirecrawlBrowserSessionWellDetailsClient
-  Firecrawl APIs used: /v2/browser and /v2/browser/{session_id}/execute
-  Returned content: browser-visible snapshot converted to HTML
-```
-
-So Firecrawl is doing the external-web work:
+Firecrawl is doing the external-web work:
 
 - loading JavaScript-rendered pages
 - using a browser-like environment
@@ -874,13 +669,30 @@ make scraping
   -> builds FirecrawlBrowserSessionWellDetailsClient
   -> app/services/ingestion.py scrape_wells()
   -> reads API CSV
-  -> reads checkpoint
+  -> reads or creates checkpoint
   -> loops over API numbers
+  -> skips completed APIs from checkpoint
   -> builds WellDetails.aspx URL
   -> _scrape_one_api()
   -> client.scrape_html(url)
   -> Firecrawl browser session opens page and returns snapshot
+  -> snapshot is converted into parser-friendly HTML
   -> parser extracts fields
   -> normalize_record()
   -> write CSV, checkpoint, and report
+```
+
+For supervised scraping, the same flow is wrapped in recovery:
+
+```text
+make scraping-supervised
+  -> scrape_wells_supervised_command()
+  -> ensure a verified browser session exists
+  -> run scrape_wells(...)
+  -> if protected/failed pages stop the scrape:
+       close stale session
+       rotate Firecrawl profile
+       create a new session
+       wait for manual verification
+       resume from data/scrape_checkpoint.json
 ```
