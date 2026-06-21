@@ -282,8 +282,7 @@ There are two client classes:
   snapshot, and converts that snapshot into parser-friendly HTML.
 
 The CLI requires `data/firecrawl_browser_session.json` to point to an active
-browser session before scraping. There is no direct `/v2/scrape` fallback for
-Well Details pages.
+browser session before scraping.
 
 ### Why A Browser Session Is Needed
 
