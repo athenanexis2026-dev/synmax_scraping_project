@@ -13,30 +13,6 @@ from app.repositories.schema import (
     GEO_COORDINATE_COLUMNS,
 )
 
-SNAKE_CASE_COLUMN_ALIASES = {
-    "Operator": "operator",
-    "Status": "status",
-    "Well Type": "well_type",
-    "Work Type": "work_type",
-    "Directional Status": "directional_status",
-    "Multi-Lateral": "multi_lateral",
-    "Mineral Owner": "mineral_owner",
-    "Surface Owner": "surface_owner",
-    "Surface Location": "surface_location",
-    "GL Elevation": "gl_elevation",
-    "KB Elevation": "kb_elevation",
-    "DF Elevation": "df_elevation",
-    "Single/Multiple Completion": "completion_type",
-    "Potash Waiver": "potash_waiver",
-    "Spud Date": "spud_date",
-    "Last Inspection": "last_inspection",
-    "TVD": "tvd",
-    "API": "api",
-    "Latitude": "latitude",
-    "Longitude": "longitude",
-    "CRS": "crs",
-}
-
 
 # ============================================================================
 # CONNECTION AND SCHEMA SETUP
@@ -101,13 +77,9 @@ def upsert_wells(
 def get_well(connection: sqlite3.Connection, api_number: str) -> dict[str, Any] | None:
     """Return one well row as a plain dictionary."""
 
-    available_columns = _table_columns(connection)
-    select_columns = ", ".join(
-        _select_expression(available_columns, column) for column in ASSIGNMENT_COLUMNS
-    )
-    api_column = _source_column(available_columns, "API")
+    select_columns = ", ".join(f'"{column}"' for column in ASSIGNMENT_COLUMNS)
     row = connection.execute(
-        f"SELECT {select_columns} FROM api_well_data WHERE {api_column} = ?",
+        f'SELECT {select_columns} FROM api_well_data WHERE "API" = ?',
         (api_number,),
     ).fetchone()
     return dict(row) if row else None
@@ -129,57 +101,18 @@ def iter_wells_in_bounds(
 ) -> list[dict[str, Any]]:
     """Return wells with coordinates inside a latitude/longitude bounding box."""
 
-    available_columns = _table_columns(connection)
-    api_column = _source_column(available_columns, "API")
-    latitude_column = _source_column(available_columns, "Latitude")
-    longitude_column = _source_column(available_columns, "Longitude")
     rows = connection.execute(
-        f"""
-        SELECT {api_column} AS "API",
-               {latitude_column} AS "Latitude",
-               {longitude_column} AS "Longitude"
+        """
+        SELECT "API",
+               "Latitude",
+               "Longitude"
         FROM api_well_data
-        WHERE {latitude_column} IS NOT NULL
-          AND {longitude_column} IS NOT NULL
-          AND {latitude_column} BETWEEN ? AND ?
-          AND {longitude_column} BETWEEN ? AND ?
-        ORDER BY {api_column} ASC
+        WHERE "Latitude" IS NOT NULL
+          AND "Longitude" IS NOT NULL
+          AND "Latitude" BETWEEN ? AND ?
+          AND "Longitude" BETWEEN ? AND ?
+        ORDER BY "API" ASC
         """,
         (min_latitude, max_latitude, min_longitude, max_longitude),
     ).fetchall()
     return [dict(row) for row in rows]
-
-
-# ============================================================================
-# SCHEMA COMPATIBILITY HELPERS
-# ============================================================================
-def _table_columns(connection: sqlite3.Connection) -> set[str]:
-    rows = connection.execute("PRAGMA table_info(api_well_data)").fetchall()
-    return {str(row["name"]) for row in rows}
-
-
-def _select_expression(available_columns: set[str], assignment_column: str) -> str:
-    source_column = _source_column(available_columns, assignment_column, required=False)
-    if source_column is None:
-        return f'NULL AS "{assignment_column}"'
-    return f'{source_column} AS "{assignment_column}"'
-
-
-def _source_column(
-    available_columns: set[str],
-    assignment_column: str,
-    *,
-    required: bool = True,
-) -> str | None:
-    if assignment_column in available_columns:
-        return f'"{assignment_column}"'
-
-    snake_case_column = SNAKE_CASE_COLUMN_ALIASES[assignment_column]
-    if snake_case_column in available_columns:
-        return f'"{snake_case_column}"'
-
-    if required:
-        raise sqlite3.OperationalError(
-            f"api_well_data is missing required column {assignment_column!r}"
-        )
-    return None
