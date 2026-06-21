@@ -963,31 +963,6 @@ default=str
 Stable JSON serialization matters because the same content should generate the
 same hash.
 
-## Why API Data Needs To Be Normalized And Repaired
-
-Main file: `app/utils/normalize.py`
-
-But source text can include long neighboring content. Repair extracts the
-useful yes/no value when possible and avoids storing unrelated label text.
-
-## Runtime Normalization Versus Data Repair
-
-There are two normalization moments relevant to the API:
-
-```text
-Request normalization:
-  Happens during /well/{api_number}.
-  Converts public API number input to digit-only lookup key.
-
-Data repair/normalization:
-  Happens before data is served by the API.
-  Makes well records consistent, typed, and safe for API clients.
-```
-
-The runtime API does not repair full well records on every request. It expects
-the records it reads to already be normalized. This keeps each API request fast
-and predictable.
-
 ## Complete Flow: GET /well/{api_number}
 
 ```text
