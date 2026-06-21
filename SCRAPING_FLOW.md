@@ -606,7 +606,36 @@ The checkpoint stores completed, blocked, and failed APIs. The CSV stores comple
 
 If a protected page is detected, the report can include a `stopped_reason`. Supervised mode uses that report to decide whether to rotate the Firecrawl profile and open a new browser verification session.
 
-## 13. Firecrawl's Role In The Process
+## 13. Errors In The Scraping Flow
+
+### Error Handling Summary
+
+```text
+ProtectedPageError
+  -> record API under checkpoint["blocked"]
+  -> may stop scrape after blocked threshold
+  -> supervised mode can recover by opening/verifying a new session
+
+FirecrawlBrowserError
+  -> retry inside _scrape_one_api()
+  -> if retries run out, becomes FirecrawlScrapeError
+
+WellDetailsParseError
+  -> retry inside _scrape_one_api()
+  -> if retries run out, becomes FirecrawlScrapeError
+
+ValueError
+  -> retry or record as failure depending on where it occurs
+
+FirecrawlScrapeError
+  -> record API under checkpoint["failures"]
+  -> may stop scrape after failed threshold
+
+SystemExit
+  -> stop the CLI command with a user-facing message
+```
+
+## 14. Firecrawl's Role In The Process
 
 Firecrawl is the remote browser layer.
 
