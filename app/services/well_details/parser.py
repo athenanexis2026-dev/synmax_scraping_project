@@ -49,11 +49,6 @@ def parse_well_details_html(
 ) -> dict[str, Any]:
     """Parse the assignment fields from a Well Details page."""
 
-    if is_protected_without_data(html_text):
-        raise ProtectedPageError(
-            "Well Details page returned protection content without data"
-        )
-
     label_values = _LabelValueParser.parse(html_text)
     if "Operator" not in label_values and "Status" not in label_values:
         raise WellDetailsParseError("Well Details labels were not found")
@@ -109,23 +104,6 @@ def well_details_snapshot_to_html(snapshot: str) -> str:
         pieces.append("</div>")
     pieces.append("</div>")
     return "".join(pieces)
-
-
-def is_protected_without_data(html_text: str) -> bool:
-    """Return True when protection/challenge markup is present but well data is absent."""
-
-    lowered = html_text.lower()
-    has_data = 'id="datapane"' in lowered or "general well information" in lowered
-    has_protection = (
-        "challenges.cloudflare.com" in lowered
-        or "cf-turnstile" in lowered
-        or "cloudflareturnstile" in lowered
-        or "just a moment" in lowered
-        or "verification failed" in lowered
-        or "could not verify your request through cloudflare turnstile" in lowered
-        or "official api instead of scraping this page" in lowered
-    )
-    return has_protection and not has_data
 
 
 # ============================================================================

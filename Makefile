@@ -12,9 +12,27 @@ close-session:
 check-session:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli check-session
 
+# scrape-wells options:
+#   --api-csv PATH
+#   --output-csv PATH
+#   --report-json PATH
+#   --checkpoint-json PATH
+#   --browser-session-json PATH
+#   --request-delay SECONDS
+#   --max-retries N
+#   --retry-backoff SECONDS
+#   --blocked-stop-threshold N
+#   --no-resume
+#   --allow-incomplete
 scraping:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli scrape-wells
 
+# scrape-wells-supervised supports all scrape-wells options above, plus:
+#   --profile-prefix TEXT
+#   --initial-profile-number N
+#   --max-session-refreshes N
+#   --verification-timeout SECONDS
+#   --verification-check-interval SECONDS
 scraping-supervised:
 	set -a; [ ! -f .env ] || . ./.env; set +a; .venv/bin/python -m app.cli scrape-wells-supervised
 

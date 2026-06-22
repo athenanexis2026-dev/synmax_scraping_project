@@ -35,7 +35,7 @@ def read_cached_well(database_path: Path, normalized_api: str) -> dict[str, Any]
         normalized_api,
     )
 
-
+# 512 covers the assignment dataset size of roughly 480 wells while leaving a small buffer.
 @lru_cache(maxsize=512)
 def _cached_get_well(
     database_path: str,
@@ -62,7 +62,9 @@ def read_cached_polygon_api_numbers(database_path: Path, points: str) -> list[st
         points,
     )
 
-
+# Polygon responses can be more expensive to compute and may vary more widely
+# because users can submit many different shapes. A smaller cache prevents the
+# process from keeping too many unique polygon result sets in memory.
 @lru_cache(maxsize=128)
 def _cached_polygon_api_numbers(
     database_path: str,

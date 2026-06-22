@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from app.services.well_details.errors import FirecrawlBrowserError, FirecrawlScrapeError
+from app.services.well_details.errors import FirecrawlBrowserError
 from app.services.well_details.parser import (
     text_from_browser_execute_response,
     well_details_snapshot_to_html,
@@ -20,91 +20,13 @@ from app.services.well_details.parser import (
 # ============================================================================
 # CONFIGURATION CONSTANTS
 # ============================================================================
-FIRECRAWL_SCRAPE_URL = "https://api.firecrawl.dev/v2/scrape"
 FIRECRAWL_API_BASE_URL = "https://api.firecrawl.dev/v2"
-BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/149.0.0.0 Safari/537.36"
-)
 OpenRequest = Callable[[urllib.request.Request, float], bytes]
 
 
 # ============================================================================
 # FIRECRAWL CLIENTS
 # ============================================================================
-@dataclass
-class FirecrawlWellDetailsClient:
-    """Small REST client for Firecrawl's single-page scrape endpoint."""
-
-    api_key: str
-    profile_name: str | None = None
-    endpoint: str = FIRECRAWL_SCRAPE_URL
-    timeout: float = 90.0
-    wait_for_ms: int = 1000
-    proxy: str = "auto"
-    opener: OpenRequest | None = None
-
-    def scrape_html(self, url: str) -> str:
-        """Return the HTML body for one official Well Details URL."""
-
-        payload: dict[str, Any] = {
-            "url": url,
-            "formats": ["html", "rawHtml"],
-            "onlyMainContent": False,
-            "headers": {
-                "User-Agent": BROWSER_USER_AGENT,
-                "Accept-Language": "en-US,en;q=0.9",
-            },
-            "waitFor": self.wait_for_ms,
-            "timeout": int(self.timeout * 1000),
-            "proxy": self.proxy,
-            "storeInCache": False,
-        }
-        if self.profile_name:
-            payload["profile"] = {"name": self.profile_name, "saveChanges": True}
-
-        request = urllib.request.Request(
-            self.endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-        )
-
-        try:
-            raw_response = self._open(request)
-            response = json.loads(raw_response.decode("utf-8"))
-        except (TimeoutError, urllib.error.URLError, json.JSONDecodeError) as error:
-            raise FirecrawlScrapeError(
-                f"Firecrawl scrape failed for {url}: {error}"
-            ) from error
-
-        if not response.get("success"):
-            error = response.get("error") or response.get("message") or response
-            raise FirecrawlScrapeError(f"Firecrawl scrape failed for {url}: {error}")
-
-        data = response.get("data") or {}
-        page_error = (data.get("metadata") or {}).get("error")
-        if page_error:
-            raise FirecrawlScrapeError(f"Firecrawl page error for {url}: {page_error}")
-
-        html_text = data.get("rawHtml") or data.get("html")
-        if not isinstance(html_text, str) or not html_text.strip():
-            raise FirecrawlScrapeError(f"Firecrawl returned no HTML for {url}")
-        return html_text
-
-    def _open(self, request: urllib.request.Request) -> bytes:
-        if self.opener is not None:
-            return self.opener(request, self.timeout)
-
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
-            return response.read()
-
-
 @dataclass
 class FirecrawlBrowserClient:
     """Client for Firecrawl browser sessions used to verify/save a profile."""

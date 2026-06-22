@@ -94,15 +94,13 @@ def test_get_well_rejects_malformed_api_number(tmp_path, monkeypatch) -> None:
 def test_get_well_accepts_four_segment_hyphenated_api_number(
     tmp_path, monkeypatch
 ) -> None:
-    client = _client_for_database(
-        _build_database_with_snake_case_columns(tmp_path), monkeypatch
-    )
+    client = _client_for_database(_build_database(tmp_path), monkeypatch)
 
     response = client.get("/well/30-015-45678-0000")
 
     assert response.status_code == 200
     assert response.json()["API"] == "30015456780000"
-    assert response.json()["Operator"] == "Snake Case Operator"
+    assert response.json()["Operator"] == "Four Segment Operator"
 
 
 def test_get_well_returns_404_for_missing_well(tmp_path, monkeypatch) -> None:
@@ -211,6 +209,12 @@ def _build_database(tmp_path):
                         "Current Operator": "No Coordinates Operator",
                     }
                 ),
+                normalize_record(
+                    {
+                        "API": "30-015-45678-0000",
+                        "Current Operator": "Four Segment Operator",
+                    }
+                ),
             ],
         )
     finally:
@@ -221,30 +225,3 @@ def _build_database(tmp_path):
 def _client_for_database(database_path, monkeypatch):
     monkeypatch.setenv("SYNMAX_DATABASE_PATH", str(database_path))
     return TestClient(create_app())
-
-
-def _build_database_with_snake_case_columns(tmp_path):
-    database_path = tmp_path / "snake_case.db"
-    connection = connect(database_path)
-    try:
-        connection.execute(
-            """
-            CREATE TABLE api_well_data (
-                operator TEXT,
-                api TEXT,
-                latitude REAL,
-                longitude REAL
-            )
-            """
-        )
-        connection.execute(
-            """
-            INSERT INTO api_well_data (operator, api, latitude, longitude)
-            VALUES (?, ?, ?, ?)
-            """,
-            ("Snake Case Operator", "30015456780000", 32.2, -103.6),
-        )
-        connection.commit()
-    finally:
-        connection.close()
-    return database_path

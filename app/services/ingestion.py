@@ -102,7 +102,7 @@ def scrape_wells(
             if consecutive_blocked >= config.blocked_stop_threshold:
                 stopped_reason = (
                     f"Stopped after {consecutive_blocked} consecutive protected pages. "
-                    "Refresh the verified Firecrawl session/profile before resuming."
+                    "Refresh the verified Firecrawl browser session before resuming."
                 )
         except (
             FirecrawlBrowserError,
@@ -119,7 +119,7 @@ def scrape_wells(
             ):
                 stopped_reason = (
                     f"Stopped after {consecutive_failed} consecutive failed pages. "
-                    "Refresh the verified Firecrawl session/profile before resuming."
+                    "Refresh the verified Firecrawl browser session before resuming."
                 )
         else:
             checkpoint["completed"][api_number] = record
