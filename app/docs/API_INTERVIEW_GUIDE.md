@@ -1,9 +1,3 @@
-# API Interview Guide
-
-Use this guide when an interviewer asks you to explain the API flow from
-`API_FLOW.md`. The goal is to walk through the code in the same order a real
-request travels through the app.
-
 This API has three public endpoints:
 
 ```text

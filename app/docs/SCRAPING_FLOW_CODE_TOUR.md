@@ -1,7 +1,5 @@
 # Scraping Flow Code Tour
 
-Use this document when an interviewer asks: "Walk me through the scraping flow."
-
 The goal is not to explain every line. The goal is to show that you understand the path from a terminal command, through the CLI, into Firecrawl, then into parsing, normalization, checkpointing, and output files.
 
 ## Quick Interview Summary
@@ -159,7 +157,7 @@ Explain:
 - This function is setup, not the scrape loop itself.
 - It reads the required Firecrawl API key.
 - It builds a `ScrapeConfig`.
-- It builds the only supported production client: a Firecrawl browser-session client.
+- It builds the Firecrawl browser-session client.
 - Then it calls `scrape_wells(config, client)`.
 
 Important phrase:
@@ -225,7 +223,7 @@ Explain:
 - This project now has one production scraping strategy: use an active Firecrawl browser session.
 - The session ID comes from `data/firecrawl_browser_session.json`.
 - If there is no active session, normal scraping exits before it starts.
-- There is no direct `/v2/scrape` fallback for Well Details pages.
+
 
 Important phrase:
 
@@ -270,6 +268,12 @@ Explain:
 - Each API gets converted into the official NM OCD Well Details URL.
 - `_scrape_one_api()` handles fetch, parse, normalize, and retry for one well.
 
+Heartbeat/pacing note:
+
+```text
+The heartbeat/sleep is not my main anti-bot strategy. The main strategy is using a verified browser session. The delay is just polite pacing and a configurable safety valve. The heartbeat version makes longer waits easier to test and easier to adjust, but I would not claim it is what prevents security challenges.
+```
+
 Next visit:
 
 ```text
@@ -291,6 +295,12 @@ Explain:
 - Supports a header with an API column or one API per row.
 - Normalizes API numbers to digits.
 - Returns a `set`, which removes duplicates.
+
+Checkpoint/resume note:
+
+```text
+If resume mode is on, the scraper loads previous scrape progress from data/scrape_checkpoint.json. If resume mode is off, it creates a new empty checkpoint and scrapes everything again. This is what makes the scraper resumable: if the scrape stops halfway through, the next run can read the checkpoint and skip API numbers that were already completed.
+```
 
 Then visit:
 
