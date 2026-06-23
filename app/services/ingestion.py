@@ -71,6 +71,7 @@ def scrape_wells(
     """Scrape requested APIs, writing CSV, report JSON, and checkpoint JSON."""
 
     sleeper = sleeper or sleep_with_heartbeat
+    #return a Set to avoid duplicates and sort the API numbers for consistent processing order
     api_numbers = sorted(read_api_numbers(config.api_csv))
     checkpoint = (
         _read_checkpoint(config.checkpoint_json)
