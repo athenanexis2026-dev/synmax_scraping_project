@@ -16,7 +16,7 @@ https://youtu.be/-YSpJCbuyZA
 
 ## Infographic
 
-![Logo](https://rafael-valdez-public.s3.us-east-1.amazonaws.com/Well_Data_Pipeline_Architecture.png)
+![Logo](https://rafael-valdez-public.s3.us-east-1.amazonaws.com/ChatGPT+Image+Jul+16%2C+2026%2C+02_36_58+PM.png)
 
 Firecrawl is a web data platform that can run managed browser sessions through
 an API. In this project it acts as the browser automation layer between the
