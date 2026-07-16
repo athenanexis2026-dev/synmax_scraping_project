@@ -1,4 +1,4 @@
-# SynMax Well Data API
+# Scraping Project
 
 This project ingests New Mexico oil and gas well data for a provided list of API
 numbers, stores normalized records in SQLite, and exposes the data through a
